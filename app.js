@@ -63,6 +63,7 @@
   if (!state.classes) state.classes = {};
   const ui = Object.assign({ cls: '7', sheet: 'trenlop', session: 'all', font: FONTS[0].name, size: 14 }, load(UI_KEY) || {});
   applyConfig(state.config);
+  if (!state.config) state.config = { classes: clone(CLASSES), trash: clone(TRASH) };
   if (!CLASSES.some(c => c.id === ui.cls)) ui.cls = CLASSES.length ? CLASSES[0].id : '7';
 
   function applyConfig(cfg) {
@@ -119,8 +120,177 @@
     else o[last] = value;
   }
 
+  // ---------- Hoàn tác / Làm lại ----------
+  // Mỗi thay đổi của mình đều đi qua sync(col, id, path, value). Ta ghi lại đường dẫn đã sửa,
+  // so với bản chụp "baseline" (trạng thái trước khi sửa) để biết giá trị cũ / mới.
+  // Hoàn tác chỉ trả lại đúng các ô mình đã sửa, không đụng tới thay đổi của người khác.
+  const UNDO_LIMIT = 100;
+  let undoStack = [], redoStack = [];
+  let baseline = null;          // bản chụp state trước thao tác đang mở
+  let touched = null;           // Map "col|id|path" -> {col, id, path}
+  let undoTimer = null;
+  let replaying = false;
+
+  function undoTouch(col, id, path) {
+    if (replaying) return;
+    if (!touched) touched = new Map();
+    const k = col + '\u0001' + id + '\u0001' + path.join('\u0001');
+    if (!touched.has(k)) touched.set(k, { col, id, path: path.slice(), view: { cls: ui.cls, sheet: ui.sheet } });
+    clearTimeout(undoTimer);
+    undoTimer = setTimeout(commitUndo, 800);
+    updateUndoButtons();
+  }
+  function takeBaseline() { if (!touched) baseline = clone(state); }
+
+  /** Đọc / ghi giá trị theo (col, id, path) trên một bản state bất kỳ */
+  function locate(root, col, id) {
+    if (col === COL_SHEETS) {
+      const i = id.lastIndexOf('__');
+      const cid = id.slice(0, i), sid = id.slice(i + 2);
+      const c = root.classes[cid] || (root.classes[cid] = { students: [], sheets: {} });
+      if (!c.sheets) c.sheets = {};
+      return { kind: 'sheet', obj: c.sheets[sid] || (c.sheets[sid] = {}) };
+    }
+    if (id === CONFIG_DOC) return { kind: 'config', obj: root.config || (root.config = { classes: clone(DEFAULT_CLASSES), trash: [] }) };
+    const c = root.classes[id] || (root.classes[id] = { students: [], sheets: {} });
+    if (!c.students) c.students = [];
+    return { kind: 'class', obj: c };
+  }
+  function getAt(root, col, id, path) {
+    const L = locate(root, col, id);
+    if (L.kind === 'class') {
+      if (path[0] !== 'students') return undefined;
+      const st = L.obj.students.find(s => s.id === path[1]);
+      if (!st) return undefined;
+      if (path.length === 2) return { name: st.name, order: st.order || 0 };
+      return st[path[2]];
+    }
+    let o = L.obj;
+    for (const k of path) { if (o == null || typeof o !== 'object') return undefined; o = o[k]; }
+    return clone(o);
+  }
+  function setAt(root, col, id, path, value) {
+    const L = locate(root, col, id);
+    if (L.kind === 'class') {
+      if (path[0] !== 'students') return;
+      const list = L.obj.students;
+      let st = list.find(s => s.id === path[1]);
+      if (path.length === 2) {
+        if (value === undefined) { L.obj.students = list.filter(s => s.id !== path[1]); return; }
+        if (!st) { st = { id: path[1] }; list.push(st); }
+        st.name = value.name; st.order = value.order;
+      } else {
+        if (!st) return;
+        if (value === undefined) delete st[path[2]]; else st[path[2]] = value;
+      }
+      L.obj.students.sort((a, b) => (a.order || 0) - (b.order || 0));
+      return;
+    }
+    setPath(L.obj, path, clone(value));
+  }
+
+  function commitUndo() {
+    clearTimeout(undoTimer);
+    if (!touched) return;
+    const ops = [];
+    let view = null;
+    touched.forEach(t => {
+      const before = baseline ? getAt(baseline, t.col, t.id, t.path) : undefined;
+      const after = getAt(state, t.col, t.id, t.path);
+      if (JSON.stringify(before) !== JSON.stringify(after)) ops.push({ col: t.col, id: t.id, path: t.path, before, after });
+      if (!view) view = t.view;
+    });
+    touched = null;
+    baseline = clone(state);
+    if (!ops.length) return;
+    undoStack.push({ ops, view, label: undoLabel(ops) });
+    if (undoStack.length > UNDO_LIMIT) undoStack.shift();
+    redoStack = [];
+    updateUndoButtons();
+  }
+  function undoLabel(ops) {
+    const p = ops[0].path[0], n = ops.length;
+    if (ops[0].id === CONFIG_DOC) return 'thay đổi lớp';
+    if (p === 'students') return n > 2 ? 'thay đổi danh sách học sinh' : 'sửa học sinh';
+    if (p === 'cols') return 'thay đổi cột';
+    if (p === 'sessions') return 'thay đổi buổi';
+    if (p === 'rows') return 'sửa kế hoạch';
+    if (p === 'notes') return 'sửa ghi chú';
+    if (p === 'targets') return 'sửa điểm mục tiêu';
+    if (p === 'totals') return 'sửa tổng số câu';
+    return n > 1 ? `sửa ${n} ô` : 'sửa ô';
+  }
+  function replay(entry, which) {
+    replaying = true;
+    // áp dụng ngược thứ tự khi hoàn tác để các thao tác nhiều bước trả về đúng
+    const ops = which === 'before' ? entry.ops.slice().reverse() : entry.ops;
+    ops.forEach(op => {
+      setAt(state, op.col, op.id, op.path, op[which]);
+      sync(op.col, op.id, op.path, op[which]);
+    });
+    replaying = false;
+    if (ops.some(op => op.id === CONFIG_DOC && op.col === COL_CLASSES)) applyConfig(state.config);
+    baseline = clone(state);
+    save();
+    if (entry.view) {
+      const okCls = CLASSES.some(c => c.id === entry.view.cls);
+      if (okCls) ui.cls = entry.view.cls;
+      ui.sheet = entry.view.sheet;
+    }
+    if (!CLASSES.some(c => c.id === ui.cls)) ui.cls = CLASSES.length ? CLASSES[0].id : ui.cls;
+    saveUI();
+    renderClassTabs();
+    renderSheetTabs();
+    renderToolbar();
+    renderContent();
+    if ($('#classDialog') && $('#classDialog').open) renderClassManager();
+  }
+  function blurEditing() {
+    const a = document.activeElement;
+    if (a && a !== document.body && a.blur) a.blur();
+  }
+  function doUndo() {
+    blurEditing();
+    commitUndo();
+    const e = undoStack.pop();
+    if (!e) return;
+    replay(e, 'before');
+    redoStack.push(e);
+    updateUndoButtons(`↶ Đã hoàn tác: ${e.label}`);
+  }
+  function doRedo() {
+    blurEditing();
+    commitUndo();
+    const e = redoStack.pop();
+    if (!e) return;
+    replay(e, 'after');
+    undoStack.push(e);
+    updateUndoButtons(`↷ Đã làm lại: ${e.label}`);
+  }
+  function resetUndo() {
+    clearTimeout(undoTimer);
+    if (!state.config) state.config = configObj();
+    undoStack = []; redoStack = []; touched = null; baseline = clone(state);
+    updateUndoButtons();
+  }
+  let toastTimer = null;
+  function updateUndoButtons(msg) {
+    const u = document.getElementById('undoBtn'), r = document.getElementById('redoBtn');
+    if (u) { u.disabled = !undoStack.length && !touched; u.title = undoStack.length ? `Hoàn tác: ${undoStack[undoStack.length - 1].label} (Ctrl+Z)` : 'Hoàn tác (Ctrl+Z)'; }
+    if (r) { r.disabled = !redoStack.length; r.title = redoStack.length ? `Làm lại: ${redoStack[redoStack.length - 1].label} (Ctrl+Y)` : 'Làm lại (Ctrl+Y)'; }
+    if (msg) {
+      const t = document.getElementById('toast');
+      if (!t) return;
+      t.textContent = msg;
+      t.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+    }
+  }
+
   /** Ghi một thay đổi lên đám mây (value === undefined nghĩa là xoá) */
   function sync(col, id, path, value) {
+    undoTouch(col, id, path);
     if (!cloud) return;
     const k = col + '\u0001' + id;
     (pending[k] = pending[k] || []).push([path, clone(value)]);
@@ -189,6 +359,7 @@
     const before = viewSnapshot();
     applyDoc(col, id, data);
     save();
+    takeBaseline();
     if (configSnapshot() !== cfgBefore) {
       if (!CLASSES.some(c => c.id === ui.cls)) { ui.cls = CLASSES.length ? CLASSES[0].id : ui.cls; ui.session = 'all'; }
       renderClassTabs();
@@ -259,6 +430,7 @@
         renderAll();
       }
       setStatus('saved');
+      resetUndo();
       adapter.subscribe([COL_CLASSES, COL_SHEETS], onRemoteDoc, err => setStatus('error', err));
     } catch (err) {
       setStatus('error', err);
@@ -480,17 +652,19 @@
     } else {
       html += `<button class="btn primary" id="addPlan">+ Thêm dòng kế hoạch</button>`;
     }
-    html += `<span class="spacer"></span>
+    html += `<span class="undo-group"><button class="btn" id="undoBtn" disabled>↶ Hoàn tác</button><button class="btn" id="redoBtn" disabled>↷ Làm lại</button></span>
+      <span class="spacer"></span>
       <button class="btn" id="exportCsv">Xuất Excel (CSV)</button>
       <button class="btn" id="printBtn">In</button>
       <button class="btn" id="backupBtn" title="Lấy toàn bộ dữ liệu (chép hoặc tải file)">Sao lưu</button>
       <button class="btn" id="restoreBtn" title="Dán hoặc chọn file sao lưu">Khôi phục</button>`;
     $('#toolbar').innerHTML = html;
+    updateUndoButtons();
     if (def.type === 'sessions') $('#sessionFilter').value = String(ui.session);
 
     $('#hint').innerHTML = def.type === 'sessions'
       ? `Hàng <b>“Tổng số câu”</b>: nhập tổng số câu của bài. Ô điểm: nhập <b>số câu đúng</b> → khi rời ô sẽ tự hiện <b>điểm /10</b> (bấm lại vào ô để xem/sửa số câu đúng).
-         Điểm danh, BTVN, chép nghe, chép phạt: bấm 1 lần = <b>✓</b>, 2 lần = <b>✗</b>, 3 lần = xoá. Vắng (✗ điểm danh) thì chỉ các ô của buổi đó bôi đỏ. Nút <b>↕ Sắp xếp A→Z</b> xếp theo tên (chữ cuối của họ tên). Dùng phím <b>← → ↑ ↓</b> để di chuyển giữa các ô, <b>Enter</b> để xuống ô dưới.
+         Điểm danh, BTVN, chép nghe, chép phạt: bấm 1 lần = <b>✓</b>, 2 lần = <b>✗</b>, 3 lần = xoá. Vắng (✗ điểm danh) thì chỉ các ô của buổi đó bôi đỏ. Nút <b>↕ Sắp xếp A→Z</b> xếp theo tên (chữ cuối của họ tên). Dùng phím <b>← → ↑ ↓</b> để di chuyển giữa các ô, <b>Enter</b> để xuống ô dưới. <b>Ctrl+Z</b> hoàn tác, <b>Ctrl+Y</b> làm lại.
          ${def.target ? 'Cột <b>Điểm mục tiêu</b>: ô điểm <b>≥ mục tiêu</b> bôi xanh, <b>dưới 5</b> bôi đỏ, còn lại giữ nguyên.' : 'Điểm <b>từ 5 trở lên</b> bôi xanh, <b>dưới 5</b> bôi đỏ.'}
          <span class="legend"><span class="hit">${def.target ? 'đạt mục tiêu' : '≥ 5'}</span><span class="low">dưới 5</span><span class="abs">vắng</span></span>`
       : 'Lập kế hoạch học IELTS cho ' + esc(className(ui.cls)) + '. Dữ liệu tự lưu trên trình duyệt này.';
@@ -1085,6 +1259,7 @@
       saveNow();
       renderAll();
       if (cloud) uploadAll();
+      resetUndo();
       alert('Đã khôi phục dữ liệu.');
       return true;
     } catch (e) {
@@ -1143,6 +1318,8 @@
         break;
       }
       case 'sortNames': sortStudents(); break;
+      case 'undoBtn': doUndo(); break;
+      case 'redoBtn': doRedo(); break;
       case 'manageClasses': openClassManager(); break;
       case 'addClassBtn': addClass(); break;
       case 'bulkAdd': $('#bulkNames').value = ''; $('#bulkDialog').showModal(); break;
@@ -1279,6 +1456,19 @@
     else if (e.key === 'Enter') e.preventDefault();
   });
 
+  // Ctrl+Z hoàn tác, Ctrl+Y / Ctrl+Shift+Z làm lại (Cmd trên Mac)
+  document.addEventListener('keydown', e => {
+    if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+    const k = e.key.toLowerCase();
+    if (k !== 'z' && k !== 'y') return;
+    const t = e.target;
+    // ô ghi chú và các ô ngoài bảng (thêm HS, hộp thoại): để trình duyệt tự hoàn tác chữ
+    if (t.tagName === 'TEXTAREA' || (t.matches && t.matches('input, select') && !$('#content').contains(t))) return;
+    if (document.querySelector('dialog[open]')) return;
+    e.preventDefault();
+    if (k === 'y' || e.shiftKey) doRedo(); else doUndo();
+  });
+
   document.addEventListener('keydown', e => {
     if (e.key === 'Enter' && e.target.id === 'newClassName') { e.preventDefault(); addClass(); return; }
     if (e.key === 'Enter' && e.target.id === 'newStudent') {
@@ -1408,4 +1598,5 @@
 
   renderFontControls();
   renderAll();
+  baseline = clone(state);
 })();
