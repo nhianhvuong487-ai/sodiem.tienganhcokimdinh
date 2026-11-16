@@ -664,7 +664,7 @@
 
     $('#hint').innerHTML = def.type === 'sessions'
       ? `Hàng <b>“Tổng số câu”</b>: nhập tổng số câu của bài. Ô điểm: nhập <b>số câu đúng</b> → khi rời ô sẽ tự hiện <b>điểm /10</b> (bấm lại vào ô để xem/sửa số câu đúng).
-         Điểm danh, BTVN, chép nghe, chép phạt: bấm 1 lần = <b>✓</b>, 2 lần = <b>✗</b>, 3 lần = xoá. Vắng (✗ điểm danh) thì chỉ các ô của buổi đó bôi đỏ. Nút <b>↕ Sắp xếp A→Z</b> xếp theo tên (chữ cuối của họ tên). Dùng phím <b>← → ↑ ↓</b> để di chuyển giữa các ô, <b>Enter</b> để xuống ô dưới. <b>Ctrl+Z</b> hoàn tác, <b>Ctrl+Y</b> làm lại.
+         Điểm danh, BTVN, chép nghe, chép phạt: bấm 1 lần = <b>✓</b>, 2 lần = <b>✗</b>, 3 lần = xoá. Vắng (✗ điểm danh) thì chỉ các ô của buổi đó bôi đỏ. Nút <b>↕ Sắp xếp A→Z</b> xếp theo tên (chữ cuối của họ tên). Dùng phím <b>← → ↑ ↓</b> để di chuyển giữa các ô, <b>Enter</b> để xuống ô dưới. <b>Ctrl+Z</b> hoàn tác, <b>Ctrl+Y</b> làm lại. Đổi chỗ cột: kéo thả tiêu đề cột hoặc bấm <b>‹ ›</b>.
          ${def.target ? 'Cột <b>Điểm mục tiêu</b>: ô điểm <b>≥ mục tiêu</b> bôi xanh, <b>dưới 5</b> bôi đỏ, còn lại giữ nguyên.' : 'Điểm <b>từ 5 trở lên</b> bôi xanh, <b>dưới 5</b> bôi đỏ.'}
          <span class="legend"><span class="hit">${def.target ? 'đạt mục tiêu' : '≥ 5'}</span><span class="low">dưới 5</span><span class="abs">vắng</span></span>`
       : 'Lập kế hoạch học IELTS cho ' + esc(className(ui.cls)) + '. Dữ liệu tự lưu trên trình duyệt này.';
@@ -724,7 +724,8 @@
     sessions.forEach(s => {
       if (!cf[s.id].length) { h += `<th class="sub ss sess-start" ${st(s)}>(chưa có cột)</th>`; return; }
       cf[s.id].forEach((c, i) => {
-        h += `<th class="sub ss ${i === 0 ? 'sess-start' : ''}" ${st(s)}><span class="lbl" data-rencol="${esc(c.key)}" title="Bấm đúp để đổi tên">${esc(c.label)}</span><button class="col-del" data-delcol="${esc(c.key)}" data-delcolsess="${esc(s.id)}" title="Xoá cột “${esc(c.label)}”">×</button></th>`;
+        const n = cf[s.id].length;
+        h += `<th class="sub ss ${i === 0 ? 'sess-start' : ''}" ${st(s)} draggable="true" data-dragcol="${esc(c.key)}" data-dragsess="${esc(s.id)}" title="Kéo để đổi chỗ cột · bấm đúp tên để đổi tên"><span class="lbl" data-rencol="${esc(c.key)}">${esc(c.label)}</span><span class="col-tools"><button class="col-move" data-colmove="${esc(c.key)}" data-colmovesess="${esc(s.id)}" data-dir="-1" ${i === 0 ? 'disabled' : ''} title="Dời cột sang trái">‹</button><button class="col-del" data-delcol="${esc(c.key)}" data-delcolsess="${esc(s.id)}" title="Xoá cột “${esc(c.label)}”">×</button><button class="col-move" data-colmove="${esc(c.key)}" data-colmovesess="${esc(s.id)}" data-dir="1" ${i === n - 1 ? 'disabled' : ''} title="Dời cột sang phải">›</button></span></th>`;
       });
     });
     h += `</tr><tr class="totals-row"><th colspan="${lead}" class="sticky c-stt" style="text-align:right">Tổng số câu →</th>`;
@@ -1096,6 +1097,32 @@
     renderContent();
   }
 
+  /** Đổi chỗ cột: thứ tự cột dùng chung cho mọi buổi của lớp / sheet này */
+  function placeColumn(key, targetKey, after) {
+    const sh = sheetData(ui.cls, ui.sheet);
+    if (key === targetKey) return;
+    const col = sh.cols.find(c => c.key === key);
+    if (!col || !sh.cols.some(c => c.key === targetKey)) return;
+    const rest = sh.cols.filter(c => c.key !== key);
+    const j = rest.findIndex(c => c.key === targetKey) + (after ? 1 : 0);
+    rest.splice(j, 0, col);
+    if (rest.map(c => c.key).join() === sh.cols.map(c => c.key).join()) return;
+    sh.cols = rest;
+    sync(COL_SHEETS, sheetDocId(ui.cls, ui.sheet), ['cols'], sh.cols);
+    save();
+    renderContent();
+  }
+  function moveColumn(key, sid, dir) {
+    const sh = sheetData(ui.cls, ui.sheet);
+    const vis = colsFor(sh, sid);
+    const i = vis.findIndex(c => c.key === key);
+    const other = vis[i + dir];
+    if (i < 0 || !other) return;
+    placeColumn(key, other.key, dir > 0);
+    const btn = document.querySelector(`[data-colmove="${CSS.escape(key)}"][data-colmovesess="${CSS.escape(sid)}"][data-dir="${dir}"]`);
+    if (btn && !btn.disabled) btn.focus({ preventScroll: true });
+  }
+
   function openDeleteColumn(key, sid) {
     const sh = sheetData(ui.cls, ui.sheet);
     if (!sh.cols.length) { alert('Không còn cột nào để xoá.'); return; }
@@ -1278,6 +1305,8 @@
   document.addEventListener('click', e => {
     const t = e.target.closest('button');
     if (!t) return;
+    // mỗi lần bấm nút là một bước hoàn tác riêng
+    if (t.id !== 'undoBtn' && t.id !== 'redoBtn') commitUndo();
     const d = t.dataset;
     if (d.close) { t.closest('dialog').close(); return; }
     if (d.cls) { ui.cls = d.cls; ui.session = 'all'; saveUI(); renderAll(); return; }
@@ -1289,6 +1318,7 @@
     if (d.clsup) { moveClass(Number(d.clsup), -1); return; }
     if (d.clsdown) { moveClass(Number(d.clsdown), 1); return; }
     if (d.delcol) { openDeleteColumn(d.delcol, d.delcolsess); return; }
+    if (d.colmove) { moveColumn(d.colmove, d.colmovesess, Number(d.dir)); return; }
     if (d.pickall) { t.closest('dialog').querySelectorAll('.pick input').forEach(i => { i.checked = d.pickall === '1'; }); return; }
     if (d.delsess) { deleteSession(d.delsess); return; }
     if (d.attcell) {
@@ -1348,6 +1378,8 @@
   // Ô điểm: khi bấm vào thì hiện số câu đúng để sửa, khi rời ô thì hiện điểm /10
   document.addEventListener('focusin', e => {
     const t = e.target;
+    // chuyển sang ô khác: chốt bước hoàn tác của ô trước
+    if (t.closest && t.closest('#content')) commitUndo();
     if (t.dataset && t.dataset.kind === 'score') {
       const tr = t.closest('tr[data-st]');
       const [sid, key] = t.dataset.cell.split('|');
@@ -1368,6 +1400,44 @@
   document.addEventListener('dblclick', e => {
     const lbl = e.target.closest('[data-rencol]');
     if (lbl) renameColumn(lbl.dataset.rencol);
+  });
+
+  // ---------- Kéo thả tiêu đề cột để đổi chỗ ----------
+  let dragCol = null;
+  function clearDropMarks() { document.querySelectorAll('#content th.drop-before, #content th.drop-after').forEach(th => th.classList.remove('drop-before', 'drop-after')); }
+  $('#content').addEventListener('dragstart', e => {
+    const th = e.target.closest && e.target.closest('th[data-dragcol]');
+    if (!th) return;
+    dragCol = { key: th.dataset.dragcol, sid: th.dataset.dragsess };
+    th.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    try { e.dataTransfer.setData('text/plain', dragCol.key); } catch (err) { /* ignore */ }
+  });
+  $('#content').addEventListener('dragover', e => {
+    if (!dragCol) return;
+    const th = e.target.closest && e.target.closest('th[data-dragcol]');
+    clearDropMarks();
+    if (!th || th.dataset.dragsess !== dragCol.sid || th.dataset.dragcol === dragCol.key) return;
+    e.preventDefault();
+    const r = th.getBoundingClientRect();
+    th.classList.add(e.clientX > r.left + r.width / 2 ? 'drop-after' : 'drop-before');
+  });
+  $('#content').addEventListener('drop', e => {
+    if (!dragCol) return;
+    const th = e.target.closest && e.target.closest('th[data-dragcol]');
+    e.preventDefault();
+    if (th && th.dataset.dragsess === dragCol.sid) {
+      commitUndo();
+      const r = th.getBoundingClientRect();
+      placeColumn(dragCol.key, th.dataset.dragcol, e.clientX > r.left + r.width / 2);
+    }
+    clearDropMarks();
+    dragCol = null;
+  });
+  $('#content').addEventListener('dragend', () => {
+    clearDropMarks();
+    document.querySelectorAll('#content th.dragging').forEach(th => th.classList.remove('dragging'));
+    dragCol = null;
   });
 
   // ---------- Di chuyển giữa các ô bằng phím mũi tên (như Excel) ----------

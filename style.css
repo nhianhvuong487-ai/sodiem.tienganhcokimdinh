@@ -349,3 +349,18 @@ dialog.wide { width: min(620px, 94vw); }
 }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
 @media print { .toast, .undo-group { display: none !important; } }
+
+/* Đổi chỗ cột */
+.grid th.sub[draggable="true"] { cursor: grab; }
+.grid th.sub .col-tools { display: flex; justify-content: center; gap: 1px; margin-top: 2px; }
+.col-move {
+  border: 0; background: transparent; color: #8b84b8; cursor: pointer; padding: 0 .35em; border-radius: 6px;
+  font-size: 1.05em; line-height: 1.1; font-weight: 700; opacity: .45; transition: .12s;
+}
+.grid th:hover .col-move { opacity: 1; }
+.col-move:hover:not(:disabled) { background: rgba(124, 58, 237, .14); color: #6d28d9; }
+.col-move:disabled { opacity: .12 !important; cursor: default; }
+.grid th.sub.dragging { opacity: .45; }
+.grid th.sub.drop-before { box-shadow: inset 4px 0 0 #7c3aed; }
+.grid th.sub.drop-after { box-shadow: inset -4px 0 0 #7c3aed; }
+@media print { .col-move, .col-tools { display: none !important; } }
