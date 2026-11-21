@@ -763,7 +763,7 @@
     if (def.type === 'sessions') $('#sessionFilter').value = String(ui.session);
 
     if (def.type === 'review') {
-      $('#hint').innerHTML = `Bảng lấy <b>điểm khảo sát</b> của tháng đã chọn. Cô ghi ngắn ở cột <b>Điểm mạnh</b> / <b>Điểm cần cải thiện</b> (mỗi ý một dòng hoặc cách nhau bằng dấu chấm phẩy, ví dụ: <i>đọc kỹ đề; lỗi nhỏ khi viết lại câu</i>) → nhận xét bên dưới tự viết thành câu và kèm gợi ý. Để trống thì web tự nhận xét dựa trên điểm. Web tự thêm nhận xét về <b>làm BTVN</b> và <b>học từ mới</b> theo tỷ lệ ở sheet điểm trên lớp cùng tháng (BTVN ≥ 90%: chăm chỉ; 60–90%: cần thường xuyên hơn; dưới 60%: cần chăm chỉ hơn — từ mới: ≥ 80% / 50–80% / dưới 50%). Có thể sửa tay từng nhận xét; bấm <b>↺ Viết lại</b> để quay về bản tự động.`;
+      $('#hint').innerHTML = `Bảng lấy <b>điểm khảo sát</b> của tháng đã chọn. Cô ghi ngắn ở cột <b>Điểm mạnh</b> / <b>Điểm cần cải thiện</b> (mỗi ý một dòng hoặc cách nhau bằng dấu chấm phẩy, ví dụ: <i>đọc kỹ đề; lỗi nhỏ khi viết lại câu</i>) → nhận xét bên dưới tự viết thành câu và kèm gợi ý. Để trống thì web tự nhận xét dựa trên điểm. Web tự thêm nhận xét về <b>làm BTVN</b> và <b>học từ mới</b> theo tỷ lệ ở sheet điểm trên lớp <b>đúng tháng đó</b> — chưa có dữ liệu thì để trống (BTVN ≥ 90%: chăm chỉ; 60–90%: cần thường xuyên hơn; dưới 60%: cần chăm chỉ hơn — từ mới: ≥ 80% / 50–80% / dưới 50%). Có thể sửa tay từng nhận xét; bấm <b>↺ Viết lại</b> để quay về bản tự động.`;
       return;
     }
     $('#hint').innerHTML = def.type === 'sessions'
@@ -1275,19 +1275,13 @@
     return [...out.slice(0, 3 - Math.min(extra.length, 1)), ...extra].slice(0, 3);
   }
 
-  /** Sheet điểm trên lớp ứng với tháng khảo sát (cùng số tháng); không có thì lấy tháng gần nhất có dữ liệu */
+  /** Sheet điểm trên lớp đúng tháng với tháng khảo sát (cùng số tháng). Không có thì để trống. */
   function monthNo(t) { const m = /tháng\s*(\d+)/i.exec(t || ''); return m ? Number(m[1]) : null; }
   function diligenceSheet(sid) {
     const ks = sheetData(ui.cls, 'khaosat');
     const want = monthNo(sessionLabel(ks, sid));
     const list = scoreSheetsOf(ui.cls);
     const same = want !== null ? list.find(m => monthNo(m.name) === want) : null;
-    const hasData = m => {
-      const sh = sheetData(ui.cls, m.id);
-      return classData(ui.cls).students.some(st => statColsOf(sh).some(x => x.def.key !== 'kttt' && statOf(sh, st.id, x.def, x.col).total));
-    };
-    if (same && hasData(same)) return same;
-    for (let i = list.length - 1; i >= 0; i--) if (hasData(list[i])) return list[i];
     return same || null;
   }
   /** {btvn:{ok,total}, tumoi:{ok,total}, sheet} của một học sinh */
@@ -1370,7 +1364,8 @@
     h += `<table class="grid review"><thead><tr><th class="sticky c-stt">STT</th><th class="sticky c-name">Họ và tên</th>`;
     cols.forEach(c => { h += `<th class="sub">${esc(cap(shortLabel(c.label)))}<div class="muted">${esc(label)}</div></th>`; });
     const dsh = sid ? diligenceSheet(sid) : null;
-    h += `<th>Tổng điểm</th><th class="stat-h">Làm BTVN<div class="muted">${esc(dsh ? dsh.name : '')}</div></th><th class="stat-h">Đạt từ mới<div class="muted">${esc(dsh ? dsh.name : '')}</div></th><th class="rv-col">🌟 Điểm mạnh</th><th class="rv-col">🎯 Điểm cần cải thiện</th></tr></thead><tbody>`;
+    const dshName = dsh ? dsh.name : 'chưa có sheet tháng này';
+    h += `<th>Tổng điểm</th><th class="stat-h">Làm BTVN<div class="muted">${esc(dshName)}</div></th><th class="stat-h">Đạt từ mới<div class="muted">${esc(dshName)}</div></th><th class="rv-col">🌟 Điểm mạnh</th><th class="rv-col">🎯 Điểm cần cải thiện</th></tr></thead><tbody>`;
     if (!students.length) h += `<tr><td class="empty" colspan="${7 + cols.length}">Lớp chưa có học sinh.</td></tr>`;
     students.forEach((st, i) => {
       const item = reviewItem(st.id, sid);
