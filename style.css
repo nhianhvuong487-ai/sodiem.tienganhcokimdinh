@@ -364,3 +364,40 @@ dialog.wide { width: min(620px, 94vw); }
 .grid th.sub.drop-before { box-shadow: inset 4px 0 0 #7c3aed; }
 .grid th.sub.drop-after { box-shadow: inset -4px 0 0 #7c3aed; }
 @media print { .col-move, .col-tools { display: none !important; } }
+
+/* Sheet theo tháng */
+.sheet-tabs .month-tab { display: inline-flex; align-items: center; gap: 4px; }
+.sheet-tabs .tab-x { margin-left: 2px; padding: 0 .3em; border-radius: 50%; opacity: .45; font-weight: 700; }
+.sheet-tabs .tab-x:hover { opacity: 1; background: rgba(225, 29, 72, .15); color: #be123c; }
+.sheet-tabs .add-month { color: #6d28d9; border: 1px dashed #c4b5fd !important; background: #faf5ff; }
+
+/* Nhận xét */
+.rv-month { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
+.grid.review td.score { min-width: 4.5em; }
+.grid.review td.score b { font-size: 1.02em; }
+.grid.review .rv-name { font-weight: 600; padding: .3em; display: inline-block; }
+.grid.review th.rv-col { min-width: 16em; }
+.grid.review td.rv-cell { padding: 3px; vertical-align: top; }
+.grid.review td.rv-cell textarea {
+  width: 100%; min-width: 15em; resize: vertical; font: inherit; font-size: .9em; padding: .4em .55em;
+  border: 1px solid var(--border); border-radius: 10px; background: #fff; white-space: pre-wrap;
+}
+.rv-cards { padding: 16px; display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; position: sticky; left: 0; max-width: calc(100vw - 40px); }
+.rv-cards h3 { grid-column: 1 / -1; margin: 6px 0 0; }
+.rv-card { border: 1px solid var(--border); border-radius: 16px; background: #fffdfb; padding: 10px; box-shadow: 0 6px 18px -12px rgba(76, 29, 149, .35); }
+.rv-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; flex-wrap: wrap; }
+.rv-head .spacer { flex: 1; }
+.rv-head .btn { padding: .3em .8em; font-size: .88em; }
+.rv-flag { font-size: .8em; color: #b45309; background: #fef3c7; padding: .1em .5em; border-radius: 999px; }
+.rv-card textarea {
+  width: 100%; font: inherit; font-size: .92em; line-height: 1.5; padding: .6em .7em; border: 1px solid var(--border);
+  border-radius: 12px; resize: vertical; white-space: pre-wrap; background: #fff;
+}
+@media print {
+  .rv-cards { display: block; position: static; max-width: none; }
+  .rv-card { break-inside: avoid; margin-bottom: 10px; }
+  .rv-head .btn { display: none; }
+}
+@media (max-width: 720px) { .rv-cards { grid-template-columns: 1fr; padding: 10px; } }
+
+.grid th.sh .sess-lbl { cursor: text; }
