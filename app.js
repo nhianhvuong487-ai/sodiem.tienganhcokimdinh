@@ -25,6 +25,7 @@
   const SHEETS = [
     { id: 'trenlop', name: 'Điểm trên lớp', type: 'sessions' },
     { id: 'khaosat', name: 'Điểm khảo sát', type: 'sessions', target: true },
+    { id: 'nhanxet', name: 'Nhận xét', type: 'review' },
     { id: 'kehoach', name: 'Kế hoạch IELTS', type: 'plan' },
   ];
 
@@ -82,7 +83,8 @@
     sync(COL_CLASSES, CONFIG_DOC, ['trash'], state.config.trash);
     save();
   }
-  if (!SHEETS.some(s => s.id === ui.sheet)) ui.sheet = 'trenlop';
+  if (!ui.reviewMonths || typeof ui.reviewMonths !== 'object') ui.reviewMonths = {};
+  validSheet();
 
   function load(key) {
     try { return JSON.parse(localStorage.getItem(key)); } catch (e) { return null; }
@@ -216,6 +218,7 @@
     if (p === 'sessions') return 'thay đổi buổi';
     if (p === 'rows') return 'sửa kế hoạch';
     if (p === 'notes') return 'sửa ghi chú';
+    if (p === 'items') return 'sửa nhận xét';
     if (p === 'targets') return 'sửa điểm mục tiêu';
     if (p === 'totals') return 'sửa tổng số câu';
     return n > 1 ? `sửa ${n} ô` : 'sửa ô';
@@ -349,7 +352,8 @@
   }
 
   function viewSnapshot() {
-    return JSON.stringify([classData(ui.cls).students, sheetData(ui.cls, ui.sheet)]);
+    const extra = ui.sheet === 'nhanxet' ? sheetData(ui.cls, 'khaosat') : null;
+    return JSON.stringify([classData(ui.cls).students, sheetData(ui.cls, ui.sheet), extra]);
   }
   function configSnapshot() { return JSON.stringify([CLASSES, TRASH]); }
 
@@ -362,7 +366,9 @@
     takeBaseline();
     if (configSnapshot() !== cfgBefore) {
       if (!CLASSES.some(c => c.id === ui.cls)) { ui.cls = CLASSES.length ? CLASSES[0].id : ui.cls; ui.session = 'all'; }
+      validSheet();
       renderClassTabs();
+      renderSheetTabs();
       if ($('#classDialog').open) renderClassManager();
     }
     if (viewSnapshot() === before) return;
@@ -445,13 +451,39 @@
     if (!c.sheets) c.sheets = {};
     return c;
   }
-  function sheetDef(sid) { return SHEETS.find(s => s.id === sid); }
+  // Sheet theo tháng: id "mon_…", lưu trong cấu hình lớp (class.months)
+  function findMonth(mid) {
+    for (const c of [...CLASSES, ...TRASH]) {
+      const m = (c.months || []).find(x => x.id === mid) || (c.monthsTrash || []).find(x => x.id === mid);
+      if (m) return m;
+    }
+    return null;
+  }
+  function sheetDef(sid) {
+    const f = SHEETS.find(s => s.id === sid);
+    if (f) return f;
+    if (typeof sid === 'string' && sid.startsWith('mon_')) {
+      const m = findMonth(sid);
+      return { id: sid, name: m ? m.name : 'Tháng', type: 'sessions', month: true };
+    }
+    return undefined;
+  }
+  function classEntry(cid) { return CLASSES.find(c => c.id === cid) || TRASH.find(c => c.id === cid); }
+  function sheetsOf(cid) {
+    const months = ((classEntry(cid) || {}).months || []).map(m => sheetDef(m.id));
+    return [SHEETS[0], ...months, SHEETS[1], SHEETS[2], SHEETS[3]];
+  }
+  function validSheet() {
+    if (!sheetsOf(ui.cls).some(s => s.id === ui.sheet)) { ui.sheet = 'trenlop'; ui.session = 'all'; }
+  }
   function sheetData(cid, sid) {
     const c = classData(cid);
     const type = sheetDef(sid).type;
-    if (!c.sheets[sid]) c.sheets[sid] = type === 'plan' ? { rows: [] } : {};
+    if (!c.sheets[sid]) c.sheets[sid] = type === 'plan' ? { rows: [] } : type === 'review' ? { items: {} } : {};
     const sh = c.sheets[sid];
-    if (type === 'sessions') {
+    if (type === 'review') {
+      if (!sh.items || typeof sh.items !== 'object') sh.items = {};
+    } else if (type === 'sessions') {
       if (!sh.totals) sh.totals = {};
       if (!sh.data) sh.data = {};
       if (sheetDef(sid).target && !sh.targets) sh.targets = {};
@@ -629,11 +661,26 @@
   }
 
   function renderSheetTabs() {
-    $('#sheetTabs').innerHTML = SHEETS.map(s =>
-      `<button data-sheet="${s.id}" class="${s.id === ui.sheet ? 'active' : ''}">${esc(s.name)}</button>`).join('');
+    validSheet();
+    let h = '';
+    sheetsOf(ui.cls).forEach(s => {
+      const act = s.id === ui.sheet ? 'active' : '';
+      if (s.month) {
+        h += `<button data-sheet="${esc(s.id)}" class="month-tab ${act}" title="Bấm đúp để đổi tên">${esc(s.name)}<span class="tab-x" data-delmonth="${esc(s.id)}" title="Xoá sheet ${esc(s.name)}">×</span></button>`;
+      } else {
+        h += `<button data-sheet="${s.id}" class="${act}">${esc(s.name)}</button>`;
+      }
+      if (s.id === 'trenlop' || s.month) {
+        const ms = (classEntry(ui.cls) || {}).months || [];
+        const last = ms.length ? ms[ms.length - 1].id : 'trenlop';
+        if (s.id === last) h += `<button class="add-month" id="addMonth" title="Thêm sheet điểm theo tháng cho ${esc(className(ui.cls))}">+ Tháng</button>`;
+      }
+    });
+    $('#sheetTabs').innerHTML = h;
   }
 
   function renderToolbar() {
+    validSheet();
     const def = sheetDef(ui.sheet);
     let html = '';
     if (def.type === 'sessions') {
@@ -649,6 +696,14 @@
           <option value="all">Hiện tất cả ${sh.sessions.length} buổi</option>
           ${sh.sessions.map(s => `<option value="${esc(s.id)}">Chỉ ${esc(sessionLabel(sh, s.id))}</option>`).join('')}
         </select>`;
+    } else if (def.type === 'review') {
+      const ks = sheetData(ui.cls, 'khaosat');
+      const cur = reviewMonth();
+      html += `<label class="rv-month">Tháng khảo sát
+          <select id="reviewMonth">${ks.sessions.map(s => `<option value="${esc(s.id)}" ${s.id === cur ? 'selected' : ''}>${esc(sessionLabel(ks, s.id))}</option>`).join('')}</select>
+        </label>
+        <button class="btn primary" id="copyAllReviews">📋 Sao chép tất cả nhận xét</button>
+        <button class="btn" id="regenAllReviews" title="Bỏ các chỗ đã sửa tay, viết lại toàn bộ nhận xét của tháng này">↺ Viết lại tất cả</button>`;
     } else {
       html += `<button class="btn primary" id="addPlan">+ Thêm dòng kế hoạch</button>`;
     }
@@ -662,6 +717,10 @@
     updateUndoButtons();
     if (def.type === 'sessions') $('#sessionFilter').value = String(ui.session);
 
+    if (def.type === 'review') {
+      $('#hint').innerHTML = `Bảng lấy <b>điểm khảo sát</b> của tháng đã chọn. Cô ghi ngắn ở cột <b>Điểm mạnh</b> / <b>Điểm cần cải thiện</b> (mỗi ý một dòng hoặc cách nhau bằng dấu chấm phẩy, ví dụ: <i>đọc kỹ đề; lỗi nhỏ khi viết lại câu</i>) → nhận xét bên dưới tự viết thành câu và kèm gợi ý. Để trống thì web tự nhận xét dựa trên điểm. Có thể sửa tay từng nhận xét; bấm <b>↺ Viết lại</b> để quay về bản tự động.`;
+      return;
+    }
     $('#hint').innerHTML = def.type === 'sessions'
       ? `Hàng <b>“Tổng số câu”</b>: nhập tổng số câu của bài. Ô điểm: nhập <b>số câu đúng</b> → khi rời ô sẽ tự hiện <b>điểm /10</b> (bấm lại vào ô để xem/sửa số câu đúng).
          Điểm danh, BTVN, chép nghe, chép phạt: bấm 1 lần = <b>✓</b>, 2 lần = <b>✗</b>, 3 lần = xoá. Vắng (✗ điểm danh) thì chỉ các ô của buổi đó bôi đỏ. Nút <b>↕ Sắp xếp A→Z</b> xếp theo tên (chữ cuối của họ tên). Dùng phím <b>← → ↑ ↓</b> để di chuyển giữa các ô, <b>Enter</b> để xuống ô dưới. <b>Ctrl+Z</b> hoàn tác, <b>Ctrl+Y</b> làm lại. Đổi chỗ cột: kéo thả tiêu đề cột hoặc bấm <b>‹ ›</b>.
@@ -674,7 +733,10 @@
     const wrap = $('#content');
     const sl = wrap.scrollLeft, st = wrap.scrollTop;
     updateCounts();
-    if (sheetDef(ui.sheet).type === 'sessions') renderSessions();
+    validSheet();
+    const type = sheetDef(ui.sheet).type;
+    if (type === 'sessions') renderSessions();
+    else if (type === 'review') renderReview();
     else renderPlan();
     wrap.scrollLeft = sl;
     wrap.scrollTop = st;
@@ -711,14 +773,15 @@
     const cf = {};
     sessions.forEach(s => { cf[s.id] = colsFor(sh, s.id); });
     const width = sessions.reduce((a, s) => a + Math.max(cf[s.id].length, 1), 0);
-    const notes = ui.sheet === 'trenlop' ? ((CLASSES.find(c => c.id === ui.cls) || {}).notes || []) : [];
+    const defNow = sheetDef(ui.sheet);
+    const notes = defNow.type === 'sessions' && !defNow.target ? ((CLASSES.find(c => c.id === ui.cls) || {}).notes || []) : [];
 
     let h = `<h2 class="print-title">${esc(className(ui.cls))} – ${esc(sheetDef(ui.sheet).name)}</h2>`;
     h += '<table class="grid"><thead><tr>';
     h += '<th rowspan="2" class="sticky c-stt">STT</th><th rowspan="2" class="sticky c-name">Họ và tên</th>';
     if (hasTarget) h += '<th rowspan="2" class="sticky c-target">Điểm<br>mục tiêu<br>(/10)</th>';
     sessions.forEach(s => {
-      h += `<th colspan="${Math.max(cf[s.id].length, 1)}" class="sh sess-start" ${st(s)}>${esc(sessionLabel(sh, s.id))} <button class="sess-del" data-delsess="${esc(s.id)}" title="Xoá ${esc(sessionLabel(sh, s.id))}">×</button>${s.name ? '' : `<div><input type="date" class="sdate" data-sdate="${esc(s.id)}" value="${esc(s.date || '')}" title="Ngày học"></div>`}</th>`;
+      h += `<th colspan="${Math.max(cf[s.id].length, 1)}" class="sh sess-start" ${st(s)}><span class="sess-lbl" data-rensess="${esc(s.id)}" title="Bấm đúp để đổi tên (VD: Tháng 11)">${esc(sessionLabel(sh, s.id))}</span> <button class="sess-del" data-delsess="${esc(s.id)}" title="Xoá ${esc(sessionLabel(sh, s.id))}">×</button>${s.name ? '' : `<div><input type="date" class="sdate" data-sdate="${esc(s.id)}" value="${esc(s.date || '')}" title="Ngày học"></div>`}</th>`;
     });
     h += '<th rowspan="3" class="sess-start">Tổng số<br>buổi đi học</th><th rowspan="3">Số buổi<br>vắng</th><th rowspan="3">Điểm TB<br>(/10)</th><th rowspan="3"></th></tr><tr>';
     sessions.forEach(s => {
@@ -858,6 +921,8 @@
   }
 
   function updateScoreCell(tr, sid, key) {
+    // ô đã bị vẽ lại / đã chuyển sang sheet khác thì bỏ qua
+    if (!tr || !tr.isConnected || sheetDef(ui.sheet).type !== 'sessions') return;
     const sh = sheetData(ui.cls, ui.sheet);
     const v = getCell(sh, tr.dataset.st, sid, key);
     const t = getTotal(sh, sid, key);
@@ -907,7 +972,7 @@
   }
 
   /** Vẽ lại khi người khác sửa, giữ nguyên ô đang nhập của mình */
-  const FOCUS_ATTRS = ['data-cell', 'data-total', 'data-name', 'data-target', 'data-plan', 'data-attcell', 'data-sdate', 'data-note'];
+  const FOCUS_ATTRS = ['data-cell', 'data-total', 'data-name', 'data-target', 'data-plan', 'data-attcell', 'data-sdate', 'data-note', 'data-rv', 'data-rvtext'];
   function renderKeepFocus() {
     const a = document.activeElement;
     let keep = null;
@@ -934,6 +999,308 @@
     if (keep.s != null) { try { el.setSelectionRange(keep.s, keep.e); } catch (e) { /* ignore */ } }
   }
 
+  // ---------- Sheet theo tháng ----------
+  function nextMonthName(cid) {
+    const ms = (classEntry(cid) || {}).months || [];
+    const last = ms.length ? ms[ms.length - 1].name : '';
+    const m = /(\d+)\s*$/.exec(last);
+    const n = m ? (Number(m[1]) % 12) + 1 : new Date().getMonth() + 1;
+    return 'Tháng ' + n;
+  }
+  function addMonth() {
+    const c = CLASSES.find(x => x.id === ui.cls);
+    if (!c) return;
+    const name = prompt(`Tên sheet tháng mới cho ${className(ui.cls)}:`, nextMonthName(ui.cls));
+    if (!name || !name.trim()) return;
+    const id = 'mon_' + uid();
+    // lấy sẵn bộ cột của tháng gần nhất (hoặc sheet Điểm trên lớp), không lấy điểm
+    const ms = c.months || [];
+    const src = sheetData(ui.cls, ms.length ? ms[ms.length - 1].id : 'trenlop');
+    c.months = [...ms, { id, name: name.trim() }];
+    const sh = classData(ui.cls).sheets[id] = {
+      sessions: Array.from({ length: DEFAULT_SESSIONS }, (_, i) => ({ id: String(i + 1) })),
+      cols: src.cols.map(col => { const x = Object.assign({}, col); delete x.only; delete x.skip; return x; }),
+      totals: {}, data: {},
+    };
+    sync(COL_SHEETS, sheetDocId(ui.cls, id), ['cols'], sh.cols);
+    sync(COL_SHEETS, sheetDocId(ui.cls, id), ['sessions'], sh.sessions);
+    ui.sheet = id; ui.session = 'all'; saveUI();
+    saveConfig();
+    renderSheetTabs(); renderToolbar(); renderContent();
+  }
+  function renameMonth(mid) {
+    const c = CLASSES.find(x => (x.months || []).some(m => m.id === mid));
+    if (!c) return;
+    const m = c.months.find(x => x.id === mid);
+    const name = prompt('Tên mới cho sheet:', m.name);
+    if (!name || !name.trim()) return;
+    c.months = c.months.map(x => x.id === mid ? Object.assign({}, x, { name: name.trim() }) : x);
+    saveConfig();
+    renderSheetTabs(); renderToolbar(); renderContent();
+  }
+  function deleteMonth(mid) {
+    const c = CLASSES.find(x => (x.months || []).some(m => m.id === mid));
+    if (!c) return;
+    const m = c.months.find(x => x.id === mid);
+    if (!confirm(`Xoá sheet “${m.name}” của ${className(c.id)}?\n\nĐiểm trong sheet vẫn được giữ: có thể bấm Hoàn tác (Ctrl+Z) hoặc khôi phục trong ⚙ Lớp → “Tháng đã xoá”.`)) return;
+    const pos = c.months.findIndex(x => x.id === mid);
+    c.months = c.months.filter(x => x.id !== mid);
+    c.monthsTrash = [Object.assign({}, m, { deletedAt: Date.now(), pos }), ...(c.monthsTrash || [])];
+    if (ui.sheet === mid) { ui.sheet = 'trenlop'; ui.session = 'all'; saveUI(); }
+    saveConfig();
+    renderSheetTabs(); renderToolbar(); renderContent();
+    if ($('#classDialog').open) renderClassManager();
+  }
+  function restoreMonth(cid, mid) {
+    const c = CLASSES.find(x => x.id === cid);
+    if (!c) return;
+    const m = (c.monthsTrash || []).find(x => x.id === mid);
+    if (!m) return;
+    c.monthsTrash = c.monthsTrash.filter(x => x.id !== mid);
+    const back = { id: m.id, name: m.name };
+    const ms = (c.months || []).slice();
+    ms.splice(Number.isInteger(m.pos) ? Math.min(m.pos, ms.length) : ms.length, 0, back);
+    c.months = ms;
+    ui.cls = cid; ui.sheet = mid; ui.session = 'all'; saveUI();
+    saveConfig();
+    renderClassTabs(); renderSheetTabs(); renderToolbar(); renderContent();
+    if ($('#classDialog').open) renderClassManager();
+  }
+
+  // ---------- Nhận xét: lấy điểm khảo sát + tự viết nhận xét ----------
+  function reviewMonth() {
+    const ks = sheetData(ui.cls, 'khaosat');
+    const saved = ui.reviewMonths[ui.cls];
+    if (saved && ks.sessions.some(s => s.id === saved)) return saved;
+    // mặc định: tháng gần nhất có điểm
+    const students = classData(ui.cls).students;
+    for (let i = ks.sessions.length - 1; i >= 0; i--) {
+      const sid = ks.sessions[i].id;
+      if (students.some(st => colsFor(ks, sid).some(c => c.type === 'score' && toTen(getCell(ks, st.id, sid, c.key), getTotal(ks, sid, c.key)) !== null))) return sid;
+    }
+    return ks.sessions.length ? ks.sessions[ks.sessions.length - 1].id : '';
+  }
+  function shortLabel(label) {
+    let t = String(label || '').replace(/^\s*điểm\s+/i, '').trim().toLowerCase();
+    if (/bài làm/.test(t)) t = 'bài tập';
+    return t;
+  }
+  function reviewScores(stId, sid) {
+    const ks = sheetData(ui.cls, 'khaosat');
+    return colsFor(ks, sid).filter(c => c.type === 'score').map(c => ({
+      col: c, label: shortLabel(c.label), value: toTen(getCell(ks, stId, sid, c.key), getTotal(ks, sid, c.key)),
+    }));
+  }
+  function avgOf(scores) {
+    const v = scores.map(x => x.value).filter(x => x !== null);
+    return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
+  }
+  const dot = n => String(Math.round(n * 100) / 100);
+  const dot1 = n => String(Math.round(n * 10) / 10);
+  const cap = t => t ? t.charAt(0).toUpperCase() + t.slice(1) : t;
+
+  // Từ khoá cô ghi → câu nhận xét
+  const STRONG_LIB = [
+    [/tự tin|mạnh dạn|\bnói\b/, 'nói tiếng Anh tự tin, mạnh dạn'],
+    [/phát âm/, 'phát âm chuẩn, rõ ràng'],
+    [/ngữ pháp|cấu trúc/, 'nắm vững cấu trúc câu và ngữ pháp'],
+    [/\bnghe\b/, 'có kỹ năng nghe tốt'],
+    [/đọc/, 'đọc hiểu tốt'],
+    [/từ mới|từ vựng/, 'chăm học từ mới, vốn từ vựng tốt'],
+    [/btvn|bài tập về nhà|bài về nhà/, 'làm đầy đủ bài tập về nhà'],
+    [/viết/, 'viết câu tốt, diễn đạt rõ ý'],
+    [/phát biểu|xây dựng bài|tích cực/, 'tích cực phát biểu xây dựng bài'],
+    [/tập trung|chú ý/, 'tập trung, chú ý nghe giảng'],
+    [/chăm|chịu khó/, 'chăm chỉ, chịu khó'],
+    [/tiến bộ/, 'có nhiều tiến bộ rõ rệt'],
+    [/cẩn thận/, 'làm bài cẩn thận'],
+    [/ngoan|lễ phép/, 'ngoan, lễ phép'],
+  ];
+  // Từ khoá → [điều cần cải thiện, gợi ý ngắn]
+  const WEAK_LIB = [
+    [/đọc\s*(kỹ\s*)?đề|đề bài|(^|\s)đề(\s|$)/, 'đọc kỹ đề bài trước khi làm', 'mỗi lần làm bài, con gạch chân từ khóa trong đề rồi đối chiếu lại câu trả lời.'],
+    [/lỗi( sai)? nhỏ|cẩn thận|ẩu|sót|lỗi sai/, 'chú ý hơn các lỗi sai nhỏ', 'sau khi làm xong, con đọc lại từng câu thành tiếng để phát hiện lỗi.'],
+    [/viết lại câu/, 'luyện thêm dạng viết lại câu', 'mỗi ngày con làm 5 câu viết lại theo các cấu trúc đã học.'],
+    [/chính tả/, 'viết đúng chính tả hơn', 'mỗi ngày con chép lại 5 từ hay viết sai và tự kiểm tra.'],
+    [/phát âm/, 'luyện phát âm chuẩn hơn', 'mỗi ngày con nghe và nhại lại audio bài học khoảng 10 phút.'],
+    [/từ mới|từ vựng/, 'học từ vựng đều đặn hơn', 'mỗi ngày con học 5–10 từ mới bằng flashcard và ôn lại vào cuối tuần.'],
+    [/ngữ pháp|cấu trúc|(^|\s)thì(\s|$)/, 'củng cố thêm ngữ pháp đã học', 'con ôn lại công thức và làm thêm 5–10 câu bài tập mỗi ngày.'],
+    [/tập trung|mất trật tự|nói chuyện|chú ý|mất tập trung/, 'tập trung hơn trong giờ học', 'con ghi chép ý chính khi cô giảng để giữ sự tập trung.'],
+    [/\bnghe\b/, 'luyện thêm kỹ năng nghe', 'mỗi ngày con nghe lại bài trên lớp và đọc theo transcript 10–15 phút.'],
+    [/đọc/, 'cải thiện kỹ năng đọc hiểu', 'mỗi ngày con đọc một đoạn văn ngắn và tóm tắt ý chính bằng 1–2 câu.'],
+    [/\bnói\b|tự tin|rụt rè|nhút nhát/, 'mạnh dạn, tự tin hơn khi nói', 'mỗi ngày con tập nói 3–5 câu về một chủ đề quen thuộc, bố mẹ có thể làm người nghe.'],
+    [/viết/, 'luyện thêm kỹ năng viết', 'mỗi tuần con viết một đoạn ngắn 5–7 câu và nhờ cô chữa.'],
+    [/chép phạt/, 'hoàn thành bài chép phạt đúng hạn', 'con làm bài chép ngay buổi tối sau khi được giao.'],
+    [/btvn|bài tập về nhà|bài về nhà|bài tập/, 'hoàn thành bài tập về nhà đầy đủ hơn', 'bố mẹ nhắc con làm bài ngay trong ngày được giao.'],
+    [/muộn|vắng|nghỉ/, 'đi học đầy đủ, đúng giờ', 'khi phải nghỉ, con xin bài và làm bù trong tuần.'],
+  ];
+  const DEFAULT_TIP = 'con dành 10–15 phút mỗi ngày ôn lại phần này.';
+
+  function splitItems(text) {
+    return String(text || '').split(/\n|;|•/).map(x => x.replace(/^\s*[-–+*]\s*/, '').trim().replace(/[.。]+$/, '')).filter(Boolean);
+  }
+  function stripCon(t) { return expandAbbr(t).replace(/^con\s+/i, ''); }
+  function expandAbbr(t) { return t.replace(/\bbtvn\b/gi, 'bài tập về nhà').replace(/\bktdg\b/gi, 'kiểm tra đầu giờ'); }
+  /** phần ngữ cảnh cô ghi thêm, ví dụ "… khi viết lại câu" */
+  function contextTail(t) { const m = /\s(khi|ở|trong|phần)\s.+$/i.exec(t); return m ? expandAbbr(m[0]) : ''; }
+  function wordCount(t) { return t.split(/\s+/).filter(Boolean).length; }
+
+  function strongBullets(text, scores) {
+    const items = splitItems(text);
+    const phrases = [];
+    if (items.length) {
+      items.forEach(it => {
+        const low = it.toLowerCase();
+        if (wordCount(it) >= 10) { phrases.push(stripCon(it).replace(/^./, ch => ch.toLowerCase())); return; }
+        const hits = [...new Set(STRONG_LIB.filter(([re]) => re.test(low)).map(x => x[1]))].slice(0, 2);
+        if (!hits.length) { phrases.push(stripCon(it).replace(/^./, ch => ch.toLowerCase())); return; }
+        phrases.push(hits.length > 1 ? hits.slice(0, -1).join(', ') + ' và ' + hits[hits.length - 1] : hits[0]);
+      });
+    } else {
+      const good = scores.filter(x => x.value !== null && x.value >= 8).sort((a, b) => b.value - a.value);
+      const mid = scores.filter(x => x.value !== null && x.value >= 6.5 && x.value < 8);
+      if (good.length) phrases.push('đạt kết quả tốt ở phần ' + good.map(x => `${x.label} (${dot(x.value)})`).join(', '));
+      else if (mid.length) phrases.push('có cố gắng ở phần ' + mid.map(x => `${x.label} (${dot(x.value)})`).join(', '));
+      phrases.push('có ý thức học tập và tham gia đầy đủ các hoạt động trên lớp');
+    }
+    const pre = ['Con ', 'Bên cạnh đó, con ', 'Ngoài ra, con '];
+    return phrases.slice(0, 3).map((ph, i) => `- ${pre[i]}${ph}${i === 1 && phrases.length > 1 ? ', thật đáng khích lệ' : ''}.`);
+  }
+
+  function weakBullets(text, scores) {
+    const items = splitItems(text);
+    const out = [];
+    if (items.length) {
+      items.slice(0, 2).forEach(it => {
+        const low = it.toLowerCase();
+        const hit = WEAK_LIB.find(([re]) => re.test(low));
+        const tip = hit ? hit[2] : DEFAULT_TIP;
+        let sentence;
+        if (wordCount(it) >= 10 || !hit) {
+          const body = stripCon(it);
+          sentence = /cần|nên|chưa/.test(low) ? 'Con ' + body.replace(/^./, ch => ch.toLowerCase()) : 'Con cần ' + body.replace(/^./, ch => ch.toLowerCase());
+        } else {
+          sentence = 'Con cần ' + hit[1] + contextTail(it);
+        }
+        out.push(`- ${sentence}. Gợi ý: ${tip}`);
+      });
+    } else {
+      const low = scores.filter(x => x.value !== null && x.value < 8).sort((a, b) => a.value - b.value).slice(0, 2);
+      low.forEach(x => {
+        const key = /nghe/.test(x.label) ? 'nghe' : /nói/.test(x.label) ? 'nói' : 'ngữ pháp';
+        const hit = WEAK_LIB.find(([re]) => re.test(key));
+        out.push(`- Con cần ${hit[1]} (${x.label}: ${dot(x.value)}). Gợi ý: ${hit[2]}`);
+      });
+      if (!out.length) out.push('- Con tiếp tục duy trì phong độ và thử sức với bài nâng cao hơn. Gợi ý: mỗi tuần con làm thêm một đề nâng cao và tự chấm.');
+    }
+    return out;
+  }
+
+  /** Mẫu nhận xét gửi phụ huynh */
+  function generateComment(st, sid, item) {
+    const ks = sheetData(ui.cls, 'khaosat');
+    const lbl = sessionLabel(ks, sid);
+    const month = /^\s*tháng/i.test(lbl) ? lbl.trim().toLowerCase() : 'tháng ' + (new Date().getMonth() + 1);
+    const scores = reviewScores(st.id, sid);
+    const have = scores.filter(x => x.value !== null);
+    const avg = avgOf(scores);
+    const detail = have.map((x, i) => `${i === 0 ? cap(x.label) : x.label}: ${dot(x.value)}`).join(', ');
+    const lines = [
+      `🌷 Kính gửi bố mẹ nhận xét tình hình học tập môn Tiếng Anh ${month} của ${st.name} như sau:`,
+      avg !== null ? `📊 1. Tổng điểm: ${dot1(avg)} (${detail})` : '📊 1. Tổng điểm: (chưa có điểm khảo sát)',
+      '🌟 2. Điểm mạnh:',
+      ...strongBullets(item && item.strong, scores),
+      '🎯 3. Điểm cần cải thiện:',
+      ...weakBullets(item && item.weak, scores),
+      '💌 Cô giáo mong bố mẹ đồng hành, động viên để con ngày càng tiến bộ.',
+      'Trân trọng!',
+    ];
+    return lines.join('\n');
+  }
+  function reviewItem(stId, sid) {
+    const rv = sheetData(ui.cls, 'nhanxet');
+    return (rv.items[sid] && rv.items[sid][stId]) || {};
+  }
+  function reviewText(st, sid) {
+    const it = reviewItem(st.id, sid);
+    return typeof it.text === 'string' && it.text ? it.text : generateComment(st, sid, it);
+  }
+  function setReviewField(stId, sid, field, value) {
+    const rv = sheetData(ui.cls, 'nhanxet');
+    if (!rv.items[sid]) rv.items[sid] = {};
+    if (!rv.items[sid][stId]) rv.items[sid][stId] = {};
+    if (value) rv.items[sid][stId][field] = value; else delete rv.items[sid][stId][field];
+    sync(COL_SHEETS, sheetDocId(ui.cls, 'nhanxet'), ['items', sid, stId, field], value || undefined);
+    save();
+  }
+
+  function renderReview() {
+    const ks = sheetData(ui.cls, 'khaosat');
+    const students = classData(ui.cls).students;
+    const sid = reviewMonth();
+    const cols = sid ? colsFor(ks, sid).filter(c => c.type === 'score') : [];
+    const label = sid ? sessionLabel(ks, sid) : '';
+    let h = `<h2 class="print-title">${esc(className(ui.cls))} – Nhận xét ${esc(label)}</h2>`;
+    h += `<table class="grid review"><thead><tr><th class="sticky c-stt">STT</th><th class="sticky c-name">Họ và tên</th>`;
+    cols.forEach(c => { h += `<th class="sub">${esc(cap(shortLabel(c.label)))}<div class="muted">${esc(label)}</div></th>`; });
+    h += '<th>Tổng điểm</th><th class="rv-col">🌟 Điểm mạnh</th><th class="rv-col">🎯 Điểm cần cải thiện</th></tr></thead><tbody>';
+    if (!students.length) h += `<tr><td class="empty" colspan="${5 + cols.length}">Lớp chưa có học sinh.</td></tr>`;
+    students.forEach((st, i) => {
+      const item = reviewItem(st.id, sid);
+      const scores = cols.map(c => ({ c, v: toTen(getCell(ks, st.id, sid, c.key), getTotal(ks, sid, c.key)) }));
+      const avg = avgOf(scores.map(x => ({ value: x.v })));
+      h += `<tr data-st="${esc(st.id)}"><td class="sticky c-stt">${i + 1}</td><td class="sticky c-name"><span class="rv-name">${esc(st.name)}</span></td>`;
+      scores.forEach(x => { h += `<td class="score ${targetClass(ks, st.id, x.v, x.c)}"><b>${x.v === null ? '–' : fmt(x.v)}</b></td>`; });
+      h += `<td class="score ${avg === null ? '' : avg >= 5 ? 'tgt-hit' : 'tgt-low'}"><b>${avg === null ? '–' : fmt(Math.round(avg * 10) / 10)}</b></td>`;
+      h += `<td class="rv-cell"><textarea data-rv="strong" rows="2" ${i === 0 ? 'placeholder="VD: nói tự tin; chăm học từ mới"' : ''}>${esc(item.strong || '')}</textarea></td>`;
+      h += `<td class="rv-cell"><textarea data-rv="weak" rows="2" ${i === 0 ? 'placeholder="VD: đọc kỹ đề; lỗi nhỏ khi viết lại câu"' : ''}>${esc(item.weak || '')}</textarea></td></tr>`;
+    });
+    h += '</tbody></table>';
+    h += `<div class="rv-cards"><h3>💌 Nhận xét gửi phụ huynh – ${esc(label)}</h3>`;
+    students.forEach(st => {
+      const it = reviewItem(st.id, sid);
+      const edited = typeof it.text === 'string' && !!it.text;
+      h += `<div class="rv-card" data-card="${esc(st.id)}"><div class="rv-head"><b>${esc(st.name)}</b>
+        <span class="rv-flag" ${edited ? '' : 'hidden'}>✏️ đã sửa tay</span>
+        <span class="spacer"></span>
+        <button class="btn" data-rvregen="${esc(st.id)}" ${edited ? '' : 'hidden'} title="Bỏ chỗ sửa tay, viết lại theo điểm mạnh / cần cải thiện">↺ Viết lại</button>
+        <button class="btn primary" data-rvcopy="${esc(st.id)}">📋 Sao chép</button></div>
+        <textarea data-rvtext="${esc(st.id)}" rows="12">${esc(reviewText(st, sid))}</textarea></div>`;
+    });
+    h += '</div>';
+    $('#content').innerHTML = h;
+    document.querySelectorAll('#content [data-rvtext]').forEach(autoSize);
+    fixHeader();
+  }
+  function autoSize(ta) { ta.style.height = 'auto'; ta.style.height = (ta.scrollHeight + 4) + 'px'; }
+  /** Cập nhật thẻ nhận xét của một học sinh khi cô sửa điểm mạnh / cần cải thiện */
+  function refreshCard(stId) {
+    const st = classData(ui.cls).students.find(s => s.id === stId);
+    const card = document.querySelector(`[data-card="${CSS.escape(stId)}"]`);
+    if (!st || !card) return;
+    const sid = reviewMonth();
+    const it = reviewItem(stId, sid);
+    const edited = typeof it.text === 'string' && !!it.text;
+    const ta = card.querySelector('textarea');
+    if (document.activeElement !== ta) ta.value = reviewText(st, sid);
+    autoSize(ta);
+    card.querySelector('.rv-flag').hidden = !edited;
+    card.querySelector('[data-rvregen]').hidden = !edited;
+  }
+  async function copyText(text) {
+    let ok = false;
+    try { if (navigator.clipboard) { await navigator.clipboard.writeText(text); ok = true; } } catch (e) { ok = false; }
+    if (!ok) {
+      const ta = document.createElement('textarea');
+      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+      ta.remove();
+    }
+    return ok;
+  }
+  function toast(msg) { updateUndoButtons(msg); }
+
   // ---------- Hành động ----------
   function addStudents(names) {
     const c = classData(ui.cls);
@@ -959,6 +1326,13 @@
           <button type="button" class="btn" data-clsren="${esc(c.id)}">Đổi tên</button>
           <button type="button" class="btn danger-soft" data-clsdel="${esc(c.id)}">Xoá</button>
         </span></li>`).join('');
+    const mTrash = [];
+    CLASSES.forEach(c => (c.monthsTrash || []).forEach(m => mTrash.push({ c, m })));
+    $('#monthTrashBox').hidden = !mTrash.length;
+    $('#monthTrashList').innerHTML = mTrash.map(({ c, m }) => `
+      <li><span class="cl-name">${esc(fullClassName(c))} – ${esc(m.name)}</span>
+        <span class="muted">xoá lúc ${esc(new Date(m.deletedAt || 0).toLocaleString('vi-VN'))}</span>
+        <span class="cl-actions"><button type="button" class="btn primary" data-monrestore="${esc(m.id)}" data-moncls="${esc(c.id)}">↺ Khôi phục</button></span></li>`).join('');
     $('#trashBox').hidden = !TRASH.length;
     $('#trashList').innerHTML = TRASH.map(c => `
       <li><span class="cl-name">${esc(fullClassName(c))}</span>
@@ -1057,7 +1431,7 @@
     c.students = c.students.filter(s => s.id !== id);
     Object.values(c.sheets).forEach(sh => { if (sh.data) delete sh.data[id]; if (sh.targets) delete sh.targets[id]; });
     sync(COL_CLASSES, ui.cls, ['students', id], undefined);
-    SHEETS.filter(d => d.type === 'sessions').forEach(d => {
+    sheetsOf(ui.cls).filter(d => d.type === 'sessions').forEach(d => {
       sync(COL_SHEETS, sheetDocId(ui.cls, d.id), ['data', id], undefined);
       if (d.target) sync(COL_SHEETS, sheetDocId(ui.cls, d.id), ['targets', id], undefined);
     });
@@ -1239,13 +1613,24 @@
         r.push(att === null ? '' : att, absences(sh, st.id), fmt(studentAvg(sh, st.id)));
         rows.push(r);
       });
+    } else if (def.type === 'review') {
+      const ks = sheetData(ui.cls, 'khaosat');
+      const sid = reviewMonth();
+      const cols = colsFor(ks, sid).filter(c => c.type === 'score');
+      rows.push(['STT', 'Họ và tên', ...cols.map(c => cap(shortLabel(c.label))), 'Tổng điểm', 'Điểm mạnh', 'Điểm cần cải thiện', 'Nhận xét']);
+      classData(ui.cls).students.forEach((st, i) => {
+        const sc = cols.map(c => toTen(getCell(ks, st.id, sid, c.key), getTotal(ks, sid, c.key)));
+        const it = reviewItem(st.id, sid);
+        const avg = avgOf(sc.map(v => ({ value: v })));
+        rows.push([i + 1, st.name, ...sc.map(fmt), avg === null ? '' : fmt(Math.round(avg * 10) / 10), it.strong || '', it.weak || '', reviewText(st, sid)]);
+      });
     } else {
       rows.push(['STT / Tuần', 'Ngày', 'Kỹ năng', 'Nội dung bài học', 'Tài liệu', 'Mục tiêu (band)', 'Hoàn thành', 'Ghi chú']);
       sh.rows.forEach(r => rows.push([r.week, r.date, r.skill, r.content, r.material, r.target, r.done ? 'x' : '', r.note]));
     }
     // Dấu ; để Excel (cài đặt Việt Nam, dấu phẩy thập phân) mở đúng cột
     const csv = '﻿' + 'sep=;\n' + rows.map(r => r.map(csvCell).join(';')).join('\r\n');
-    download(`${className(ui.cls)} - ${def.name}.csv`, csv, 'text/csv;charset=utf-8');
+    download(`${className(ui.cls)} - ${def.name}${def.type === 'review' ? ' ' + sessionLabel(sheetData(ui.cls, 'khaosat'), reviewMonth()) : ''}.csv`, csv, 'text/csv;charset=utf-8');
   }
 
   function backupText() { saveNow(); return JSON.stringify(state); }
@@ -1303,13 +1688,27 @@
 
   // ---------- Sự kiện ----------
   document.addEventListener('click', e => {
+    const dm = e.target.closest && e.target.closest('[data-delmonth]');
+    if (dm) { e.preventDefault(); commitUndo(); deleteMonth(dm.dataset.delmonth); return; }
     const t = e.target.closest('button');
     if (!t) return;
     // mỗi lần bấm nút là một bước hoàn tác riêng
     if (t.id !== 'undoBtn' && t.id !== 'redoBtn') commitUndo();
     const d = t.dataset;
     if (d.close) { t.closest('dialog').close(); return; }
-    if (d.cls) { ui.cls = d.cls; ui.session = 'all'; saveUI(); renderAll(); return; }
+    if (d.cls) { ui.cls = d.cls; ui.session = 'all'; validSheet(); saveUI(); renderAll(); return; }
+    if (d.monrestore) { restoreMonth(d.moncls, d.monrestore); return; }
+    if (d.rvcopy) {
+      const st = classData(ui.cls).students.find(s => s.id === d.rvcopy);
+      const ta = document.querySelector(`[data-rvtext="${CSS.escape(d.rvcopy)}"]`);
+      if (st && ta) copyText(ta.value).then(ok => toast(ok ? `📋 Đã sao chép nhận xét của ${st.name}` : 'Không sao chép được – hãy chọn chữ rồi Ctrl+C'));
+      return;
+    }
+    if (d.rvregen) {
+      setReviewField(d.rvregen, reviewMonth(), 'text', '');
+      refreshCard(d.rvregen);
+      return;
+    }
     if (d.sheet) { ui.sheet = d.sheet; ui.session = 'all'; saveUI(); renderAll(); return; }
     if (d.del) { deleteStudent(d.del); return; }
     if (d.clsdel) { deleteClass(d.clsdel); return; }
@@ -1348,6 +1747,23 @@
         break;
       }
       case 'sortNames': sortStudents(); break;
+      case 'addMonth': addMonth(); break;
+      case 'copyAllReviews': {
+        const sid = reviewMonth();
+        const txt = classData(ui.cls).students.map(st => reviewText(st, sid)).join('\n\n────────────\n\n');
+        copyText(txt).then(ok => toast(ok ? '📋 Đã sao chép nhận xét của cả lớp' : 'Không sao chép được'));
+        break;
+      }
+      case 'regenAllReviews': {
+        const sid = reviewMonth();
+        const rv = sheetData(ui.cls, 'nhanxet');
+        const ids = Object.keys(rv.items[sid] || {}).filter(id => rv.items[sid][id].text);
+        if (!ids.length) { toast('Chưa có nhận xét nào sửa tay'); break; }
+        if (!confirm(`Bỏ phần sửa tay của ${ids.length} nhận xét và viết lại tự động? (Có thể Hoàn tác)`)) break;
+        ids.forEach(id => setReviewField(id, sid, 'text', ''));
+        renderContent();
+        break;
+      }
       case 'undoBtn': doUndo(); break;
       case 'redoBtn': doRedo(); break;
       case 'manageClasses': openClassManager(); break;
@@ -1398,6 +1814,21 @@
   });
 
   document.addEventListener('dblclick', e => {
+    const sl = e.target.closest && e.target.closest('[data-rensess]');
+    if (sl) {
+      const sh = sheetData(ui.cls, ui.sheet);
+      const ses = sh.sessions.find(x => x.id === sl.dataset.rensess);
+      if (!ses) return;
+      const name = prompt('Tên buổi (để trống = dùng tên mặc định "Buổi n"):', ses.name || sessionLabel(sh, ses.id));
+      if (name === null) return;
+      const i = sh.sessions.indexOf(ses);
+      if (!name.trim() || name.trim() === 'Buổi ' + (i + 1)) delete ses.name; else ses.name = name.trim();
+      sync(COL_SHEETS, sheetDocId(ui.cls, ui.sheet), ['sessions'], sh.sessions);
+      save(); renderToolbar(); renderContent();
+      return;
+    }
+    const mt = e.target.closest && e.target.closest('button.month-tab[data-sheet]');
+    if (mt) { renameMonth(mt.dataset.sheet); return; }
     const lbl = e.target.closest('[data-rencol]');
     if (lbl) renameColumn(lbl.dataset.rencol);
   });
@@ -1575,6 +2006,7 @@
   document.addEventListener('change', e => {
     const t = e.target;
     if (t.id === 'sessionFilter') { ui.session = t.value; saveUI(); renderContent(); return; }
+    if (t.id === 'reviewMonth') { ui.reviewMonths[ui.cls] = t.value; saveUI(); renderContent(); return; }
     if (t.dataset.sdate) {
       const sh = sheetData(ui.cls, ui.sheet);
       const ses = sh.sessions.find(x => x.id === t.dataset.sdate);
@@ -1619,6 +2051,23 @@
       save();
       document.querySelectorAll('#content tbody tr[data-st]').forEach(tr => { updateScoreCell(tr, sid, key); updateRow(tr); });
       updateFooter();
+      return;
+    }
+    if (t.dataset.rv) {
+      const tr = t.closest('tr[data-st]');
+      setReviewField(tr.dataset.st, reviewMonth(), t.dataset.rv, t.value);
+      refreshCard(tr.dataset.st);
+      return;
+    }
+    if (t.dataset.rvtext) {
+      autoSize(t);
+      const st = classData(ui.cls).students.find(s => s.id === t.dataset.rvtext);
+      const auto = st ? generateComment(st, reviewMonth(), reviewItem(st.id, reviewMonth())) : '';
+      setReviewField(t.dataset.rvtext, reviewMonth(), 'text', t.value === auto ? '' : t.value);
+      const card = t.closest('[data-card]');
+      const edited = t.value !== auto && !!t.value;
+      card.querySelector('.rv-flag').hidden = !edited;
+      card.querySelector('[data-rvregen]').hidden = !edited;
       return;
     }
     if (t.dataset.note) {
