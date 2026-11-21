@@ -401,3 +401,24 @@ dialog.wide { width: min(620px, 94vw); }
 @media (max-width: 720px) { .rv-cards { grid-template-columns: 1fr; padding: 10px; } }
 
 .grid th.sh .sess-lbl { cursor: text; }
+
+/* Hàng tháng bên dưới tab chính */
+.month-tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: -4px 0 12px; }
+.month-tabs .mt-label { font-weight: 700; color: #6d28d9; margin-right: 2px; }
+.month-tabs button {
+  border: 1px solid var(--border); background: #fff; color: var(--text); padding: .4em 1em; border-radius: 999px;
+  cursor: pointer; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;
+}
+.month-tabs button.active { background: #ede9fe; border-color: #a78bfa; color: #5b21b6; }
+.month-tabs .tab-x { margin-left: 2px; padding: 0 .3em; border-radius: 50%; opacity: .45; font-weight: 700; }
+.month-tabs .tab-x:hover { opacity: 1; background: rgba(225, 29, 72, .15); color: #be123c; }
+.month-tabs .add-month { color: #6d28d9; border: 1px dashed #c4b5fd; background: #faf5ff; }
+/* Thống kê tỷ lệ */
+.grid th.stat-h { min-width: 6.5em; font-size: .85em; background: #f0fdf4; }
+.grid td.stat { min-width: 6.5em; white-space: nowrap; }
+.grid td.stat .pct { font-weight: 800; }
+.grid td.stat .pct.good { color: var(--good); }
+.grid td.stat .pct.mid { color: var(--mid); }
+.grid td.stat .pct.bad { color: var(--bad); }
+.grid td.stat .frac { margin-left: 4px; font-size: .78em; color: var(--muted); }
+@media print { .month-tabs { display: none !important; } }
