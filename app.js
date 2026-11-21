@@ -352,7 +352,7 @@
   }
 
   function viewSnapshot() {
-    const extra = ui.sheet === 'nhanxet' ? sheetData(ui.cls, 'khaosat') : null;
+    const extra = ui.sheet === 'nhanxet' ? [sheetData(ui.cls, 'khaosat'), ...scoreSheetsOf(ui.cls).map(m => sheetData(ui.cls, m.id))] : null;
     return JSON.stringify([classData(ui.cls).students, sheetData(ui.cls, ui.sheet), extra]);
   }
   function configSnapshot() { return JSON.stringify([CLASSES, TRASH]); }
@@ -469,6 +469,20 @@
     return undefined;
   }
   function classEntry(cid) { return CLASSES.find(c => c.id === cid) || TRASH.find(c => c.id === cid); }
+  const BASE_MONTH = 'Tháng 11';   // sheet "Điểm trên lớp" hiện có của mọi lớp là tháng 11
+  function baseMonthName(cid) { return (classEntry(cid) || {}).baseMonth || BASE_MONTH; }
+  function isClassScore(sid) { return sid === 'trenlop' || (typeof sid === 'string' && sid.startsWith('mon_')); }
+  /** Các sheet điểm trên lớp của lớp, theo thứ tự tháng: [{id, name}] */
+  function scoreSheetsOf(cid) {
+    return [{ id: 'trenlop', name: baseMonthName(cid) }, ...(((classEntry(cid) || {}).months) || []).map(m => ({ id: m.id, name: m.name }))];
+  }
+  function sheetTitle(cid, sid) {
+    if (isClassScore(sid)) {
+      const m = scoreSheetsOf(cid).find(x => x.id === sid);
+      return 'Điểm trên lớp – ' + (m ? m.name : '');
+    }
+    return (sheetDef(sid) || {}).name || '';
+  }
   function sheetsOf(cid) {
     const months = ((classEntry(cid) || {}).months || []).map(m => sheetDef(m.id));
     return [SHEETS[0], ...months, SHEETS[1], SHEETS[2], SHEETS[3]];
@@ -549,6 +563,38 @@
     }));
     return cnt ? sum / cnt : null;
   }
+  // ---------- Thống kê: tỷ lệ làm BTVN, tỷ lệ đạt từ mới / kiến thức trọng tâm ----------
+  const PASS_SCORE = 5;
+  const STAT_DEFS = [
+    { key: 'btvn', title: 'Tỷ lệ làm BTVN', short: 'BTVN', test: c => c.type === 'check' && /btvn|bài tập về nhà/i.test(c.label) },
+    { key: 'tumoi', title: 'Tỷ lệ đạt từ mới', short: 'Từ mới', test: c => c.type === 'score' && /từ mới|từ vựng/i.test(c.label) },
+    { key: 'kttt', title: 'Tỷ lệ đạt trọng tâm', short: 'Trọng tâm', test: c => c.type === 'score' && /trọng tâm/i.test(c.label) },
+  ];
+  function statColsOf(sh) {
+    return STAT_DEFS.map(d => ({ def: d, col: sh.cols.find(d.test) })).filter(x => x.col);
+  }
+  /** {ok, total}: BTVN = số buổi ✓ / số buổi đã chấm ✓ hoặc ✗; điểm = số bài ≥ 5 / số bài có điểm */
+  function statOf(sh, stId, def, col) {
+    let ok = 0, total = 0;
+    sh.sessions.forEach(s => {
+      if (!colsFor(sh, s.id).includes(col)) return;
+      const v = getCell(sh, stId, s.id, col.key);
+      if (def.key === 'btvn') {
+        if (isPresent(v)) { ok++; total++; } else if (isAbsent(v)) total++;
+      } else {
+        const sc = toTen(v, getTotal(sh, s.id, col.key));
+        if (sc !== null) { total++; if (sc >= PASS_SCORE) ok++; }
+      }
+    });
+    return { ok, total };
+  }
+  function pctHTML(st) {
+    if (!st.total) return '<span class="muted">–</span>';
+    const p = Math.round(st.ok / st.total * 100);
+    const cls = p >= 80 ? 'good' : p >= 50 ? 'mid' : 'bad';
+    return `<span class="pct ${cls}">${p}%</span><span class="frac">${st.ok}/${st.total}</span>`;
+  }
+
   function convInfo(correct, total) {
     const c = num(correct);
     if (c === null) return { text: '', cls: '' };
@@ -662,21 +708,20 @@
 
   function renderSheetTabs() {
     validSheet();
-    let h = '';
-    sheetsOf(ui.cls).forEach(s => {
-      const act = s.id === ui.sheet ? 'active' : '';
-      if (s.month) {
-        h += `<button data-sheet="${esc(s.id)}" class="month-tab ${act}" title="Bấm đúp để đổi tên">${esc(s.name)}<span class="tab-x" data-delmonth="${esc(s.id)}" title="Xoá sheet ${esc(s.name)}">×</span></button>`;
-      } else {
-        h += `<button data-sheet="${s.id}" class="${act}">${esc(s.name)}</button>`;
-      }
-      if (s.id === 'trenlop' || s.month) {
-        const ms = (classEntry(ui.cls) || {}).months || [];
-        const last = ms.length ? ms[ms.length - 1].id : 'trenlop';
-        if (s.id === last) h += `<button class="add-month" id="addMonth" title="Thêm sheet điểm theo tháng cho ${esc(className(ui.cls))}">+ Tháng</button>`;
-      }
-    });
-    $('#sheetTabs').innerHTML = h;
+    const inScore = isClassScore(ui.sheet);
+    $('#sheetTabs').innerHTML = SHEETS.map(s => {
+      const act = (s.id === 'trenlop' ? inScore : s.id === ui.sheet) ? 'active' : '';
+      return `<button data-sheet="${s.id}" class="${act}">${esc(s.name)}</button>`;
+    }).join('');
+    // Hàng tháng (bên dưới): chỉ hiện khi đang ở "Điểm trên lớp"
+    const row = $('#monthTabs');
+    if (!inScore) { row.hidden = true; row.innerHTML = ''; return; }
+    row.hidden = false;
+    row.innerHTML = '<span class="mt-label">📅 Tháng:</span>' + scoreSheetsOf(ui.cls).map(m => {
+      const act = m.id === ui.sheet ? 'active' : '';
+      const x = m.id === 'trenlop' ? '' : `<span class="tab-x" data-delmonth="${esc(m.id)}" title="Xoá sheet ${esc(m.name)}">×</span>`;
+      return `<button data-sheet="${esc(m.id)}" class="month-tab ${act}" title="Bấm đúp để đổi tên">${esc(m.name)}${x}</button>`;
+    }).join('') + `<button class="add-month" id="addMonth" title="Thêm sheet điểm theo tháng cho ${esc(className(ui.cls))}">+ Thêm tháng</button>`;
   }
 
   function renderToolbar() {
@@ -718,12 +763,12 @@
     if (def.type === 'sessions') $('#sessionFilter').value = String(ui.session);
 
     if (def.type === 'review') {
-      $('#hint').innerHTML = `Bảng lấy <b>điểm khảo sát</b> của tháng đã chọn. Cô ghi ngắn ở cột <b>Điểm mạnh</b> / <b>Điểm cần cải thiện</b> (mỗi ý một dòng hoặc cách nhau bằng dấu chấm phẩy, ví dụ: <i>đọc kỹ đề; lỗi nhỏ khi viết lại câu</i>) → nhận xét bên dưới tự viết thành câu và kèm gợi ý. Để trống thì web tự nhận xét dựa trên điểm. Có thể sửa tay từng nhận xét; bấm <b>↺ Viết lại</b> để quay về bản tự động.`;
+      $('#hint').innerHTML = `Bảng lấy <b>điểm khảo sát</b> của tháng đã chọn. Cô ghi ngắn ở cột <b>Điểm mạnh</b> / <b>Điểm cần cải thiện</b> (mỗi ý một dòng hoặc cách nhau bằng dấu chấm phẩy, ví dụ: <i>đọc kỹ đề; lỗi nhỏ khi viết lại câu</i>) → nhận xét bên dưới tự viết thành câu và kèm gợi ý. Để trống thì web tự nhận xét dựa trên điểm. Web tự thêm nhận xét về <b>làm BTVN</b> và <b>học từ mới</b> theo tỷ lệ ở sheet điểm trên lớp cùng tháng (BTVN ≥ 90%: chăm chỉ; 60–90%: cần thường xuyên hơn; dưới 60%: cần chăm chỉ hơn — từ mới: ≥ 80% / 50–80% / dưới 50%). Có thể sửa tay từng nhận xét; bấm <b>↺ Viết lại</b> để quay về bản tự động.`;
       return;
     }
     $('#hint').innerHTML = def.type === 'sessions'
       ? `Hàng <b>“Tổng số câu”</b>: nhập tổng số câu của bài. Ô điểm: nhập <b>số câu đúng</b> → khi rời ô sẽ tự hiện <b>điểm /10</b> (bấm lại vào ô để xem/sửa số câu đúng).
-         Điểm danh, BTVN, chép nghe, chép phạt: bấm 1 lần = <b>✓</b>, 2 lần = <b>✗</b>, 3 lần = xoá. Vắng (✗ điểm danh) thì chỉ các ô của buổi đó bôi đỏ. Nút <b>↕ Sắp xếp A→Z</b> xếp theo tên (chữ cuối của họ tên). Dùng phím <b>← → ↑ ↓</b> để di chuyển giữa các ô, <b>Enter</b> để xuống ô dưới. <b>Ctrl+Z</b> hoàn tác, <b>Ctrl+Y</b> làm lại. Đổi chỗ cột: kéo thả tiêu đề cột hoặc bấm <b>‹ ›</b>.
+         Điểm danh, BTVN, chép nghe, chép phạt: bấm 1 lần = <b>✓</b>, 2 lần = <b>✗</b>, 3 lần = xoá. Vắng (✗ điểm danh) thì chỉ các ô của buổi đó bôi đỏ. Nút <b>↕ Sắp xếp A→Z</b> xếp theo tên (chữ cuối của họ tên). Dùng phím <b>← → ↑ ↓</b> để di chuyển giữa các ô, <b>Enter</b> để xuống ô dưới. <b>Ctrl+Z</b> hoàn tác, <b>Ctrl+Y</b> làm lại. Đổi chỗ cột: kéo thả tiêu đề cột hoặc bấm <b>‹ ›</b>. Cuối mỗi dòng: <b>tỷ lệ làm BTVN</b> (số buổi ✓ / số buổi đã chấm) và <b>tỷ lệ đạt</b> từ mới, trọng tâm (số bài từ 5 điểm / số bài có điểm).
          ${def.target ? 'Cột <b>Điểm mục tiêu</b>: ô điểm <b>≥ mục tiêu</b> bôi xanh, <b>dưới 5</b> bôi đỏ, còn lại giữ nguyên.' : 'Điểm <b>từ 5 trở lên</b> bôi xanh, <b>dưới 5</b> bôi đỏ.'}
          <span class="legend"><span class="hit">${def.target ? 'đạt mục tiêu' : '≥ 5'}</span><span class="low">dưới 5</span><span class="abs">vắng</span></span>`
       : 'Lập kế hoạch học IELTS cho ' + esc(className(ui.cls)) + '. Dữ liệu tự lưu trên trình duyệt này.';
@@ -776,14 +821,17 @@
     const defNow = sheetDef(ui.sheet);
     const notes = defNow.type === 'sessions' && !defNow.target ? ((CLASSES.find(c => c.id === ui.cls) || {}).notes || []) : [];
 
-    let h = `<h2 class="print-title">${esc(className(ui.cls))} – ${esc(sheetDef(ui.sheet).name)}</h2>`;
+    let h = `<h2 class="print-title">${esc(className(ui.cls))} – ${esc(sheetTitle(ui.cls, ui.sheet))}</h2>`;
     h += '<table class="grid"><thead><tr>';
     h += '<th rowspan="2" class="sticky c-stt">STT</th><th rowspan="2" class="sticky c-name">Họ và tên</th>';
     if (hasTarget) h += '<th rowspan="2" class="sticky c-target">Điểm<br>mục tiêu<br>(/10)</th>';
     sessions.forEach(s => {
       h += `<th colspan="${Math.max(cf[s.id].length, 1)}" class="sh sess-start" ${st(s)}><span class="sess-lbl" data-rensess="${esc(s.id)}" title="Bấm đúp để đổi tên (VD: Tháng 11)">${esc(sessionLabel(sh, s.id))}</span> <button class="sess-del" data-delsess="${esc(s.id)}" title="Xoá ${esc(sessionLabel(sh, s.id))}">×</button>${s.name ? '' : `<div><input type="date" class="sdate" data-sdate="${esc(s.id)}" value="${esc(s.date || '')}" title="Ngày học"></div>`}</th>`;
     });
-    h += '<th rowspan="3" class="sess-start">Tổng số<br>buổi đi học</th><th rowspan="3">Số buổi<br>vắng</th><th rowspan="3">Điểm TB<br>(/10)</th><th rowspan="3"></th></tr><tr>';
+    const stats = isClassScore(ui.sheet) ? statColsOf(sh) : [];
+    h += '<th rowspan="3" class="sess-start">Tổng số<br>buổi đi học</th><th rowspan="3">Số buổi<br>vắng</th><th rowspan="3">Điểm TB<br>(/10)</th>';
+    stats.forEach((x, i) => { h += `<th rowspan="3" class="stat-h ${i === 0 ? 'sess-start' : ''}" title="${x.def.key === 'btvn' ? 'Số buổi ✓ / số buổi đã chấm ✓ hoặc ✗' : 'Số bài đạt từ 5 điểm / số bài có điểm'}">${esc(x.def.title).replace('Tỷ lệ ', 'Tỷ lệ<br>')}</th>`; });
+    h += '<th rowspan="3"></th></tr><tr>';
     sessions.forEach(s => {
       if (!cf[s.id].length) { h += `<th class="sub ss sess-start" ${st(s)}>(chưa có cột)</th>`; return; }
       cf[s.id].forEach((c, i) => {
@@ -805,7 +853,7 @@
     h += '</tr></thead><tbody>';
 
     if (!students.length) {
-      h += `<tr><td class="empty" colspan="${lead + width + 4}">Chưa có học sinh. Hãy thêm học sinh ở thanh công cụ phía trên.</td></tr>`;
+      h += `<tr><td class="empty" colspan="${lead + width + 4 + stats.length}">Chưa có học sinh. Hãy thêm học sinh ở thanh công cụ phía trên.</td></tr>`;
     }
 
     students.forEach((stu, idx) => {
@@ -822,6 +870,7 @@
       h += `<td class="att sess-start" data-att>${hasAttend ? `${att}/${sh.sessions.length}` : '—'}</td>`;
       h += `<td class="att" style="color:var(--bad)">${absences(sh, stu.id) || ''}</td>`;
       h += `<td class="avg" data-avg><span class="conv ${gradeClass(avg)}">${fmt(avg)}</span></td>`;
+      stats.forEach((x, i) => { h += `<td class="stat ${i === 0 ? 'sess-start' : ''}" data-stat="${x.def.key}">${pctHTML(statOf(sh, stu.id, x.def, x.col))}</td>`; });
       h += `<td><button class="del" data-del="${stu.id}" title="Xoá học sinh">×</button></td></tr>`;
     });
 
@@ -832,7 +881,7 @@
         const val = sh.notes && sh.notes[s.id] ? sh.notes[s.id][nt.key] : '';
         h += `<td colspan="${Math.max(cf[s.id].length, 1)}" class="sc sess-start note-cell" ${st(s)}><textarea data-note="${esc(s.id)}|${esc(nt.key)}" rows="3" placeholder="${esc(nt.label)} – ${esc(sessionLabel(sh, s.id))}">${esc(val || '')}</textarea></td>`;
       });
-      h += '<td colspan="4" class="sess-start"></td></tr>';
+      h += `<td colspan="${4 + stats.length}" class="sess-start"></td></tr>`;
     });
     h += '</tbody>';
 
@@ -844,7 +893,9 @@
           h += `<td class="sc ${i === 0 ? 'sess-start' : ''}" ${st(s)} data-foot="${esc(s.id)}|${esc(c.key)}"></td>`;
         });
       });
-      h += '<td class="sess-start" data-foot="att"></td><td></td><td data-foot="avg"></td><td></td></tr></tfoot>';
+      h += '<td class="sess-start" data-foot="att"></td><td></td><td data-foot="avg"></td>';
+      stats.forEach((x, i) => { h += `<td class="stat ${i === 0 ? 'sess-start' : ''}" data-foot="stat:${x.def.key}"></td>`; });
+      h += '<td></td></tr></tfoot>';
     }
     h += '</table>';
     $('#content').innerHTML = h;
@@ -886,6 +937,13 @@
         td.textContent = vals.length ? fmt(vals.reduce((a, b) => a + b, 0) / vals.length) + ' buổi' : '';
         return;
       }
+      if (f.startsWith('stat:')) {
+        const x = statColsOf(sh).find(y => y.def.key === f.slice(5));
+        if (!x) return;
+        const sum = students.reduce((a, st) => { const r = statOf(sh, st.id, x.def, x.col); a.ok += r.ok; a.total += r.total; return a; }, { ok: 0, total: 0 });
+        td.innerHTML = pctHTML(sum);
+        return;
+      }
       if (f === 'avg') {
         const avgs = students.map(st => studentAvg(sh, st.id)).filter(v => v !== null);
         const a = avgs.length ? avgs.reduce((x, y) => x + y, 0) / avgs.length : null;
@@ -918,6 +976,10 @@
     const att = attendance(sh, stId);
     tr.querySelector('[data-att]').textContent = att === null ? '—' : `${att}/${sh.sessions.length}`;
     tr.querySelector('[data-avg]').innerHTML = `<span class="conv ${gradeClass(avg)}">${fmt(avg)}</span>`;
+    tr.querySelectorAll('[data-stat]').forEach(td => {
+      const x = statColsOf(sh).find(y => y.def.key === td.dataset.stat);
+      if (x) td.innerHTML = pctHTML(statOf(sh, stId, x.def, x.col));
+    });
   }
 
   function updateScoreCell(tr, sid, key) {
@@ -1001,8 +1063,8 @@
 
   // ---------- Sheet theo tháng ----------
   function nextMonthName(cid) {
-    const ms = (classEntry(cid) || {}).months || [];
-    const last = ms.length ? ms[ms.length - 1].name : '';
+    const ms = scoreSheetsOf(cid);
+    const last = ms[ms.length - 1].name;
     const m = /(\d+)\s*$/.exec(last);
     const n = m ? (Number(m[1]) % 12) + 1 : new Date().getMonth() + 1;
     return 'Tháng ' + n;
@@ -1012,6 +1074,8 @@
     if (!c) return;
     const name = prompt(`Tên sheet tháng mới cho ${className(ui.cls)}:`, nextMonthName(ui.cls));
     if (!name || !name.trim()) return;
+    if (scoreSheetsOf(ui.cls).some(m => m.name.trim().toLowerCase() === name.trim().toLowerCase()) &&
+        !confirm(`${className(ui.cls)} đã có sheet “${name.trim()}”. Vẫn tạo thêm sheet trùng tên?`)) return;
     const id = 'mon_' + uid();
     // lấy sẵn bộ cột của tháng gần nhất (hoặc sheet Điểm trên lớp), không lấy điểm
     const ms = c.months || [];
@@ -1029,6 +1093,16 @@
     renderSheetTabs(); renderToolbar(); renderContent();
   }
   function renameMonth(mid) {
+    if (mid === 'trenlop') {
+      const c = CLASSES.find(x => x.id === ui.cls);
+      if (!c) return;
+      const name = prompt('Tên tháng của sheet này:', baseMonthName(ui.cls));
+      if (!name || !name.trim()) return;
+      c.baseMonth = name.trim();
+      saveConfig();
+      renderSheetTabs(); renderContent();
+      return;
+    }
     const c = CLASSES.find(x => (x.months || []).some(m => m.id === mid));
     if (!c) return;
     const m = c.months.find(x => x.id === mid);
@@ -1145,9 +1219,10 @@
   function contextTail(t) { const m = /\s(khi|ở|trong|phần)\s.+$/i.exec(t); return m ? expandAbbr(m[0]) : ''; }
   function wordCount(t) { return t.split(/\s+/).filter(Boolean).length; }
 
-  function strongBullets(text, scores) {
+  function strongBullets(text, scores, extra) {
     const items = splitItems(text);
     const phrases = [];
+    extra = extra || [];
     if (items.length) {
       items.forEach(it => {
         const low = it.toLowerCase();
@@ -1161,15 +1236,18 @@
       const mid = scores.filter(x => x.value !== null && x.value >= 6.5 && x.value < 8);
       if (good.length) phrases.push('đạt kết quả tốt ở phần ' + good.map(x => `${x.label} (${dot(x.value)})`).join(', '));
       else if (mid.length) phrases.push('có cố gắng ở phần ' + mid.map(x => `${x.label} (${dot(x.value)})`).join(', '));
-      phrases.push('có ý thức học tập và tham gia đầy đủ các hoạt động trên lớp');
+      if (!extra.length) phrases.push('có ý thức học tập và tham gia đầy đủ các hoạt động trên lớp');
     }
+    // phần chăm chỉ (BTVN / từ mới) gộp thành một ý, luôn giữ lại
+    const all = extra.length ? [...phrases.slice(0, 2), extra.join(' và ')] : phrases;
     const pre = ['Con ', 'Bên cạnh đó, con ', 'Ngoài ra, con '];
-    return phrases.slice(0, 3).map((ph, i) => `- ${pre[i]}${ph}${i === 1 && phrases.length > 1 ? ', thật đáng khích lệ' : ''}.`);
+    return all.slice(0, 3).map((ph, i) => `- ${pre[i]}${ph}${i === 1 && all.length > 1 ? ', thật đáng khích lệ' : ''}.`);
   }
 
-  function weakBullets(text, scores) {
+  function weakBullets(text, scores, extra) {
     const items = splitItems(text);
     const out = [];
+    extra = extra || [];
     if (items.length) {
       items.slice(0, 2).forEach(it => {
         const low = it.toLowerCase();
@@ -1191,9 +1269,56 @@
         const hit = WEAK_LIB.find(([re]) => re.test(key));
         out.push(`- Con cần ${hit[1]} (${x.label}: ${dot(x.value)}). Gợi ý: ${hit[2]}`);
       });
-      if (!out.length) out.push('- Con tiếp tục duy trì phong độ và thử sức với bài nâng cao hơn. Gợi ý: mỗi tuần con làm thêm một đề nâng cao và tự chấm.');
+      if (!out.length && !extra.length) out.push('- Con tiếp tục duy trì phong độ và thử sức với bài nâng cao hơn. Gợi ý: mỗi tuần con làm thêm một đề nâng cao và tự chấm.');
     }
+    // tối đa 3 ý để nhận xét không quá dài; ưu tiên ý cô ghi, rồi đến chăm chỉ
+    return [...out.slice(0, 3 - Math.min(extra.length, 1)), ...extra].slice(0, 3);
+  }
+
+  /** Sheet điểm trên lớp ứng với tháng khảo sát (cùng số tháng); không có thì lấy tháng gần nhất có dữ liệu */
+  function monthNo(t) { const m = /tháng\s*(\d+)/i.exec(t || ''); return m ? Number(m[1]) : null; }
+  function diligenceSheet(sid) {
+    const ks = sheetData(ui.cls, 'khaosat');
+    const want = monthNo(sessionLabel(ks, sid));
+    const list = scoreSheetsOf(ui.cls);
+    const same = want !== null ? list.find(m => monthNo(m.name) === want) : null;
+    const hasData = m => {
+      const sh = sheetData(ui.cls, m.id);
+      return classData(ui.cls).students.some(st => statColsOf(sh).some(x => x.def.key !== 'kttt' && statOf(sh, st.id, x.def, x.col).total));
+    };
+    if (same && hasData(same)) return same;
+    for (let i = list.length - 1; i >= 0; i--) if (hasData(list[i])) return list[i];
+    return same || null;
+  }
+  /** {btvn:{ok,total}, tumoi:{ok,total}, sheet} của một học sinh */
+  function diligenceOf(stId, sid) {
+    const m = diligenceSheet(sid);
+    if (!m) return { sheet: null };
+    const sh = sheetData(ui.cls, m.id);
+    const out = { sheet: m };
+    statColsOf(sh).forEach(x => { out[x.def.key] = statOf(sh, stId, x.def, x.col); });
     return out;
+  }
+  const MIN_SESSIONS = 2;   // cần ít nhất 2 buổi có dữ liệu mới nhận xét
+  /** Câu nhận xét về sự chăm chỉ: {strong: [cụm từ], weak: [câu đầy đủ]} */
+  function diligenceNotes(dg, strongText, weakText) {
+    const told = (strongText || '') + ' ' + (weakText || '');
+    const res = { strong: [], weak: [] };
+    const b = dg.btvn;
+    if (b && b.total >= MIN_SESSIONS && !/btvn|bài tập về nhà|bài về nhà/i.test(told)) {
+      const r = b.ok / b.total;
+      if (r >= 0.9) res.strong.push(`chăm chỉ làm bài tập về nhà đầy đủ (${b.ok}/${b.total} buổi)`);
+      else if (r >= 0.6) res.weak.push(`- Con đã có ý thức làm bài tập về nhà nhưng cần làm thường xuyên hơn (${b.ok}/${b.total} buổi). Gợi ý: bố mẹ nhắc con làm bài ngay trong ngày được giao.`);
+      else res.weak.push(`- Con cần chăm chỉ làm bài tập về nhà hơn (mới làm ${b.ok}/${b.total} buổi). Gợi ý: con đặt một khung giờ cố định mỗi tối để làm bài, bố mẹ kiểm tra giúp cô.`);
+    }
+    const v = dg.tumoi;
+    if (v && v.total >= MIN_SESSIONS && !/từ mới|từ vựng/i.test(told)) {
+      const r = v.ok / v.total;
+      if (r >= 0.8) res.strong.push(`chăm học từ mới, đạt ${v.ok}/${v.total} bài kiểm tra từ vựng`);
+      else if (r >= 0.5) res.weak.push(`- Con đã chăm học từ mới nhưng cần ôn thường xuyên hơn (đạt ${v.ok}/${v.total} bài kiểm tra). Gợi ý: mỗi ngày con ôn lại 5–10 từ bằng flashcard và ôn toàn bộ trước buổi học.`);
+      else res.weak.push(`- Con cần chăm chỉ học từ mới hơn (mới đạt ${v.ok}/${v.total} bài kiểm tra). Gợi ý: mỗi ngày con học 5–10 từ mới bằng flashcard và nhờ bố mẹ kiểm tra lại.`);
+    }
+    return res;
   }
 
   /** Mẫu nhận xét gửi phụ huynh */
@@ -1205,13 +1330,14 @@
     const have = scores.filter(x => x.value !== null);
     const avg = avgOf(scores);
     const detail = have.map((x, i) => `${i === 0 ? cap(x.label) : x.label}: ${dot(x.value)}`).join(', ');
+    const dn = diligenceNotes(diligenceOf(st.id, sid), item && item.strong, item && item.weak);
     const lines = [
       `🌷 Kính gửi bố mẹ nhận xét tình hình học tập môn Tiếng Anh ${month} của ${st.name} như sau:`,
       avg !== null ? `📊 1. Tổng điểm: ${dot1(avg)} (${detail})` : '📊 1. Tổng điểm: (chưa có điểm khảo sát)',
       '🌟 2. Điểm mạnh:',
-      ...strongBullets(item && item.strong, scores),
+      ...strongBullets(item && item.strong, scores, dn.strong),
       '🎯 3. Điểm cần cải thiện:',
-      ...weakBullets(item && item.weak, scores),
+      ...weakBullets(item && item.weak, scores, dn.weak),
       '💌 Cô giáo mong bố mẹ đồng hành, động viên để con ngày càng tiến bộ.',
       'Trân trọng!',
     ];
@@ -1243,8 +1369,9 @@
     let h = `<h2 class="print-title">${esc(className(ui.cls))} – Nhận xét ${esc(label)}</h2>`;
     h += `<table class="grid review"><thead><tr><th class="sticky c-stt">STT</th><th class="sticky c-name">Họ và tên</th>`;
     cols.forEach(c => { h += `<th class="sub">${esc(cap(shortLabel(c.label)))}<div class="muted">${esc(label)}</div></th>`; });
-    h += '<th>Tổng điểm</th><th class="rv-col">🌟 Điểm mạnh</th><th class="rv-col">🎯 Điểm cần cải thiện</th></tr></thead><tbody>';
-    if (!students.length) h += `<tr><td class="empty" colspan="${5 + cols.length}">Lớp chưa có học sinh.</td></tr>`;
+    const dsh = sid ? diligenceSheet(sid) : null;
+    h += `<th>Tổng điểm</th><th class="stat-h">Làm BTVN<div class="muted">${esc(dsh ? dsh.name : '')}</div></th><th class="stat-h">Đạt từ mới<div class="muted">${esc(dsh ? dsh.name : '')}</div></th><th class="rv-col">🌟 Điểm mạnh</th><th class="rv-col">🎯 Điểm cần cải thiện</th></tr></thead><tbody>`;
+    if (!students.length) h += `<tr><td class="empty" colspan="${7 + cols.length}">Lớp chưa có học sinh.</td></tr>`;
     students.forEach((st, i) => {
       const item = reviewItem(st.id, sid);
       const scores = cols.map(c => ({ c, v: toTen(getCell(ks, st.id, sid, c.key), getTotal(ks, sid, c.key)) }));
@@ -1252,6 +1379,8 @@
       h += `<tr data-st="${esc(st.id)}"><td class="sticky c-stt">${i + 1}</td><td class="sticky c-name"><span class="rv-name">${esc(st.name)}</span></td>`;
       scores.forEach(x => { h += `<td class="score ${targetClass(ks, st.id, x.v, x.c)}"><b>${x.v === null ? '–' : fmt(x.v)}</b></td>`; });
       h += `<td class="score ${avg === null ? '' : avg >= 5 ? 'tgt-hit' : 'tgt-low'}"><b>${avg === null ? '–' : fmt(Math.round(avg * 10) / 10)}</b></td>`;
+      const dg = diligenceOf(st.id, sid);
+      h += `<td class="stat">${pctHTML(dg.btvn || { ok: 0, total: 0 })}</td><td class="stat">${pctHTML(dg.tumoi || { ok: 0, total: 0 })}</td>`;
       h += `<td class="rv-cell"><textarea data-rv="strong" rows="2" ${i === 0 ? 'placeholder="VD: nói tự tin; chăm học từ mới"' : ''}>${esc(item.strong || '')}</textarea></td>`;
       h += `<td class="rv-cell"><textarea data-rv="weak" rows="2" ${i === 0 ? 'placeholder="VD: đọc kỹ đề; lỗi nhỏ khi viết lại câu"' : ''}>${esc(item.weak || '')}</textarea></td></tr>`;
     });
@@ -1598,7 +1727,8 @@
         head.push(`${sessionLabel(sh, s.id)}${s.date ? ' (' + s.date + ')' : ''} - ${c.label}${c.type === 'score' ? ' (/10)' : ''}`);
         totalsRow.push(c.type === 'score' ? (getTotal(sh, s.id, c.key) ?? '') : '');
       }));
-      head.push('Tổng số buổi đi học', 'Số buổi vắng', 'Điểm TB (/10)');
+      const stats = isClassScore(ui.sheet) ? statColsOf(sh) : [];
+      head.push('Tổng số buổi đi học', 'Số buổi vắng', 'Điểm TB (/10)', ...stats.map(x => x.def.title));
       rows.push(head, totalsRow);
       students.forEach((st, i) => {
         const r = [i + 1, st.name].concat(hasTarget ? [fmt(num(sh.targets[st.id]))] : []);
@@ -1611,6 +1741,7 @@
         }));
         const att = attendance(sh, st.id);
         r.push(att === null ? '' : att, absences(sh, st.id), fmt(studentAvg(sh, st.id)));
+        stats.forEach(x => { const q = statOf(sh, st.id, x.def, x.col); r.push(q.total ? `${Math.round(q.ok / q.total * 100)}% (${q.ok}/${q.total})` : ''); });
         rows.push(r);
       });
     } else if (def.type === 'review') {
@@ -1630,7 +1761,7 @@
     }
     // Dấu ; để Excel (cài đặt Việt Nam, dấu phẩy thập phân) mở đúng cột
     const csv = '﻿' + 'sep=;\n' + rows.map(r => r.map(csvCell).join(';')).join('\r\n');
-    download(`${className(ui.cls)} - ${def.name}${def.type === 'review' ? ' ' + sessionLabel(sheetData(ui.cls, 'khaosat'), reviewMonth()) : ''}.csv`, csv, 'text/csv;charset=utf-8');
+    download(`${className(ui.cls)} - ${sheetTitle(ui.cls, ui.sheet)}${def.type === 'review' ? ' ' + sessionLabel(sheetData(ui.cls, 'khaosat'), reviewMonth()) : ''}.csv`, csv, 'text/csv;charset=utf-8');
   }
 
   function backupText() { saveNow(); return JSON.stringify(state); }
@@ -1709,7 +1840,11 @@
       refreshCard(d.rvregen);
       return;
     }
-    if (d.sheet) { ui.sheet = d.sheet; ui.session = 'all'; saveUI(); renderAll(); return; }
+    if (d.sheet) {
+      if (d.sheet === 'trenlop' && isClassScore(ui.sheet) && !t.classList.contains('month-tab')) return;
+      if (d.sheet === ui.sheet) return;   // đã mở rồi: không vẽ lại (để bấm đúp đổi tên được)
+      ui.sheet = d.sheet; ui.session = 'all'; saveUI(); renderAll(); return;
+    }
     if (d.del) { deleteStudent(d.del); return; }
     if (d.clsdel) { deleteClass(d.clsdel); return; }
     if (d.clsren) { renameClass(d.clsren); return; }
@@ -1827,7 +1962,8 @@
       save(); renderToolbar(); renderContent();
       return;
     }
-    const mt = e.target.closest && e.target.closest('button.month-tab[data-sheet]');
+    const mt = (e.target.closest && e.target.closest('button.month-tab[data-sheet]')) ||
+      (e.target.closest && e.target.closest('#monthTabs') && document.querySelector('#monthTabs button.month-tab.active'));
     if (mt) { renameMonth(mt.dataset.sheet); return; }
     const lbl = e.target.closest('[data-rencol]');
     if (lbl) renameColumn(lbl.dataset.rencol);
