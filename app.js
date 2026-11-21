@@ -42,7 +42,7 @@
   ];
 
   // Mỗi buổi một màu (sắc độ HSL)
-  const SESSION_HUES = [262, 199, 152, 28, 330, 222, 174, 8, 290, 45, 110, 240];
+  const SESSION_HUES = [215, 190, 160, 235, 200, 172, 145, 250, 205, 182, 225, 135];
 
   const FONTS = [
     { name: 'Be Vietnam Pro', css: "'Be Vietnam Pro', system-ui, sans-serif" },
