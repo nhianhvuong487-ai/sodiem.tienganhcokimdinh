@@ -1173,106 +1173,114 @@
   const dot1 = n => String(Math.round(n * 10) / 10);
   const cap = t => t ? t.charAt(0).toUpperCase() + t.slice(1) : t;
 
-  // Từ khoá cô ghi → câu nhận xét
+  // ---------- Bộ câu mẫu (lời văn gửi phụ huynh) ----------
+  // Từ khoá cô ghi ở cột Điểm mạnh → cụm từ trau chuốt (ghép sau "Con …")
   const STRONG_LIB = [
-    [/tự tin|mạnh dạn|\bnói\b/, 'nói tiếng Anh tự tin, mạnh dạn'],
+    [/tự tin|mạnh dạn|\bnói\b|giao tiếp/, 'tự tin, mạnh dạn khi giao tiếp bằng tiếng Anh'],
     [/phát âm/, 'phát âm chuẩn, rõ ràng'],
-    [/ngữ pháp|cấu trúc/, 'nắm vững cấu trúc câu và ngữ pháp'],
-    [/\bnghe\b/, 'có kỹ năng nghe tốt'],
-    [/đọc/, 'đọc hiểu tốt'],
-    [/từ mới|từ vựng/, 'chăm học từ mới, vốn từ vựng tốt'],
-    [/btvn|bài tập về nhà|bài về nhà/, 'làm đầy đủ bài tập về nhà'],
-    [/viết/, 'viết câu tốt, diễn đạt rõ ý'],
+    [/ngữ pháp|cấu trúc/, 'nắm vững cấu trúc câu, ngữ pháp'],
+    [/\bnghe\b/, 'có kỹ năng nghe hiểu tốt'],
+    [/đọc/, 'đọc hiểu nhanh, chính xác'],
+    [/từ mới|từ vựng/, 'chăm học từ mới, vốn từ vựng phong phú'],
+    [/btvn|bài tập về nhà|bài về nhà/, 'hoàn thành bài tập về nhà đầy đủ'],
+    [/viết/, 'viết câu mạch lạc, diễn đạt rõ ý'],
     [/phát biểu|xây dựng bài|tích cực/, 'tích cực phát biểu xây dựng bài'],
     [/tập trung|chú ý/, 'tập trung, chú ý nghe giảng'],
     [/chăm|chịu khó/, 'chăm chỉ, chịu khó'],
-    [/tiến bộ/, 'có nhiều tiến bộ rõ rệt'],
+    [/tiến bộ/, 'tiến bộ rõ rệt so với trước'],
     [/cẩn thận/, 'làm bài cẩn thận'],
-    [/ngoan|lễ phép/, 'ngoan, lễ phép'],
+    [/ngoan|lễ phép/, 'ngoan ngoãn, lễ phép'],
+    [/sáng tạo/, 'có nhiều ý tưởng sáng tạo'],
   ];
-  // Từ khoá → [điều cần cải thiện, gợi ý ngắn]
+  // Từ khoá ở cột Cần cải thiện → [điều cần cải thiện, gợi ý ngắn]
   const WEAK_LIB = [
-    [/đọc\s*(kỹ\s*)?đề|đề bài|(^|\s)đề(\s|$)/, 'đọc kỹ đề bài trước khi làm', 'mỗi lần làm bài, con gạch chân từ khóa trong đề rồi đối chiếu lại câu trả lời.'],
-    [/lỗi( sai)? nhỏ|cẩn thận|ẩu|sót|lỗi sai/, 'chú ý hơn các lỗi sai nhỏ', 'sau khi làm xong, con đọc lại từng câu thành tiếng để phát hiện lỗi.'],
-    [/viết lại câu/, 'luyện thêm dạng viết lại câu', 'mỗi ngày con làm 5 câu viết lại theo các cấu trúc đã học.'],
-    [/chính tả/, 'viết đúng chính tả hơn', 'mỗi ngày con chép lại 5 từ hay viết sai và tự kiểm tra.'],
-    [/phát âm/, 'luyện phát âm chuẩn hơn', 'mỗi ngày con nghe và nhại lại audio bài học khoảng 10 phút.'],
-    [/từ mới|từ vựng/, 'học từ vựng đều đặn hơn', 'mỗi ngày con học 5–10 từ mới bằng flashcard và ôn lại vào cuối tuần.'],
-    [/ngữ pháp|cấu trúc|(^|\s)thì(\s|$)/, 'củng cố thêm ngữ pháp đã học', 'con ôn lại công thức và làm thêm 5–10 câu bài tập mỗi ngày.'],
-    [/tập trung|mất trật tự|nói chuyện|chú ý|mất tập trung/, 'tập trung hơn trong giờ học', 'con ghi chép ý chính khi cô giảng để giữ sự tập trung.'],
-    [/\bnghe\b/, 'luyện thêm kỹ năng nghe', 'mỗi ngày con nghe lại bài trên lớp và đọc theo transcript 10–15 phút.'],
-    [/đọc/, 'cải thiện kỹ năng đọc hiểu', 'mỗi ngày con đọc một đoạn văn ngắn và tóm tắt ý chính bằng 1–2 câu.'],
-    [/\bnói\b|tự tin|rụt rè|nhút nhát/, 'mạnh dạn, tự tin hơn khi nói', 'mỗi ngày con tập nói 3–5 câu về một chủ đề quen thuộc, bố mẹ có thể làm người nghe.'],
-    [/viết/, 'luyện thêm kỹ năng viết', 'mỗi tuần con viết một đoạn ngắn 5–7 câu và nhờ cô chữa.'],
-    [/chép phạt/, 'hoàn thành bài chép phạt đúng hạn', 'con làm bài chép ngay buổi tối sau khi được giao.'],
-    [/btvn|bài tập về nhà|bài về nhà|bài tập/, 'hoàn thành bài tập về nhà đầy đủ hơn', 'bố mẹ nhắc con làm bài ngay trong ngày được giao.'],
+    [/đọc\s*(kỹ\s*)?đề|đề bài|(^|\s)đề(\s|$)/, 'đọc kỹ đề bài trước khi làm', 'con gạch chân từ khóa trong đề rồi đối chiếu lại đáp án.'],
+    [/lỗi( sai)? nhỏ|cẩn thận|ẩu|sót|lỗi sai/, 'cẩn thận hơn để tránh những lỗi sai nhỏ', 'con đọc lại bài một lượt trước khi nộp.'],
+    [/viết lại câu/, 'luyện thêm dạng viết lại câu', 'mỗi ngày con làm 5 câu theo các cấu trúc đã học.'],
+    [/chính tả/, 'chú ý viết đúng chính tả', 'con ghi lại những từ hay sai và tự kiểm tra mỗi ngày.'],
+    [/phát âm/, 'luyện phát âm chuẩn hơn', 'mỗi ngày con nghe và nhại theo audio bài học khoảng 10 phút.'],
+    [/từ mới|từ vựng/, 'ôn từ vựng đều đặn hơn', 'mỗi ngày con học 5–10 từ bằng flashcard.'],
+    [/ngữ pháp|cấu trúc|(^|\s)thì(\s|$)/, 'củng cố thêm kiến thức ngữ pháp', 'con ôn lại công thức và làm thêm 5–10 câu mỗi ngày.'],
+    [/tập trung|mất trật tự|nói chuyện|chú ý|mất tập trung/, 'tập trung hơn trong giờ học', 'con ghi chép ý chính khi cô giảng bài.'],
+    [/\bnghe\b/, 'luyện thêm kỹ năng nghe', 'mỗi ngày con nghe lại bài trên lớp kèm transcript 10–15 phút.'],
+    [/đọc/, 'rèn thêm kỹ năng đọc hiểu', 'mỗi ngày con đọc một đoạn ngắn và tóm tắt ý chính.'],
+    [/\bnói\b|tự tin|rụt rè|nhút nhát/, 'mạnh dạn, tự tin hơn khi nói', 'mỗi ngày con tập nói 3–5 câu về một chủ đề quen thuộc.'],
+    [/viết/, 'luyện thêm kỹ năng viết', 'mỗi tuần con viết một đoạn ngắn 5–7 câu để cô chữa.'],
+    [/chép phạt/, 'hoàn thành bài chép phạt đúng hạn', 'con làm ngay trong buổi tối được giao.'],
+    [/btvn|bài tập về nhà|bài về nhà|bài tập/, 'hoàn thành bài tập về nhà đầy đủ hơn', 'con làm bài ngay trong ngày được giao, bố mẹ nhắc con giúp cô.'],
     [/muộn|vắng|nghỉ/, 'đi học đầy đủ, đúng giờ', 'khi phải nghỉ, con xin bài và làm bù trong tuần.'],
+    [/sách vở|đồ dùng|quên/, 'chuẩn bị đầy đủ sách vở, đồ dùng học tập', 'con soạn cặp sách từ tối hôm trước theo thời khoá biểu.'],
+    [/ghi chép|chép bài|ghi bài/, 'ghi chép bài đầy đủ hơn', 'con ghi lại ý chính và ví dụ cô viết trên bảng.'],
   ];
-  const DEFAULT_TIP = 'con dành 10–15 phút mỗi ngày ôn lại phần này.';
+  const DEFAULT_TIP = 'con đặt một mục tiêu nhỏ mỗi tuần, cô và bố mẹ cùng theo dõi để nhắc nhở con.';
 
   function splitItems(text) {
     return String(text || '').split(/\n|;|•/).map(x => x.replace(/^\s*[-–+*]\s*/, '').trim().replace(/[.。]+$/, '')).filter(Boolean);
   }
-  function stripCon(t) { return expandAbbr(t).replace(/^con\s+/i, ''); }
   function expandAbbr(t) { return t.replace(/\bbtvn\b/gi, 'bài tập về nhà').replace(/\bktdg\b/gi, 'kiểm tra đầu giờ'); }
+  /** Bỏ chữ "con" ở đầu và viết thường chữ cái đầu để ghép vào câu */
+  function clean(t) { return expandAbbr(t).trim().replace(/^con\s+/i, '').replace(/^./, ch => ch.toLowerCase()); }
   /** phần ngữ cảnh cô ghi thêm, ví dụ "… khi viết lại câu" */
   function contextTail(t) { const m = /\s(khi|ở|trong|phần)\s.+$/i.exec(t); return m ? expandAbbr(m[0]) : ''; }
   function wordCount(t) { return t.split(/\s+/).filter(Boolean).length; }
+  /** a, b và c */
+  function joinVi(arr) { return arr.length > 1 ? arr.slice(0, -1).join(', ') + ' và ' + arr[arr.length - 1] : (arr[0] || ''); }
 
+  /** Mỗi ý cô ghi → một cụm từ (giữ lời cô nếu ý dài hoặc không khớp từ khoá) */
+  function strongPhrase(it) {
+    const low = it.toLowerCase();
+    if (wordCount(it) >= 10) return clean(it);
+    let hits = [...new Set(STRONG_LIB.filter(([re]) => re.test(low)).map(x => x[1]))];
+    // "chăm chỉ, chịu khó" chung chung: bỏ nếu đã có ý cụ thể hơn (VD: chăm học từ mới)
+    if (hits.length > 1) hits = hits.filter(h => h !== 'chăm chỉ, chịu khó');
+    return hits.length ? hits.join(', ') : clean(it);
+  }
+  /** Điểm mạnh: lấy đủ mọi ý, gộp gọn vào tối đa 3 câu */
   function strongBullets(text, scores, extra) {
-    const items = splitItems(text);
-    const phrases = [];
     extra = extra || [];
-    if (items.length) {
-      items.forEach(it => {
-        const low = it.toLowerCase();
-        if (wordCount(it) >= 10) { phrases.push(stripCon(it).replace(/^./, ch => ch.toLowerCase())); return; }
-        const hits = [...new Set(STRONG_LIB.filter(([re]) => re.test(low)).map(x => x[1]))].slice(0, 2);
-        if (!hits.length) { phrases.push(stripCon(it).replace(/^./, ch => ch.toLowerCase())); return; }
-        phrases.push(hits.length > 1 ? hits.slice(0, -1).join(', ') + ' và ' + hits[hits.length - 1] : hits[0]);
-      });
-    } else {
+    let phrases = [...new Set(splitItems(text).map(strongPhrase))];
+    if (!phrases.length) {
       const good = scores.filter(x => x.value !== null && x.value >= 8).sort((a, b) => b.value - a.value);
       const mid = scores.filter(x => x.value !== null && x.value >= 6.5 && x.value < 8);
-      if (good.length) phrases.push('đạt kết quả tốt ở phần ' + good.map(x => `${x.label} (${dot(x.value)})`).join(', '));
-      else if (mid.length) phrases.push('có cố gắng ở phần ' + mid.map(x => `${x.label} (${dot(x.value)})`).join(', '));
-      if (!extra.length) phrases.push('có ý thức học tập và tham gia đầy đủ các hoạt động trên lớp');
+      if (good.length) phrases.push('đạt kết quả tốt ở phần ' + joinVi(good.map(x => `${x.label} (${dot(x.value)})`)));
+      else if (mid.length) phrases.push('có nhiều cố gắng ở phần ' + joinVi(mid.map(x => `${x.label} (${dot(x.value)})`)));
+      if (!extra.length) phrases.push('có ý thức học tập tốt và tham gia tích cực các hoạt động trên lớp');
     }
-    // phần chăm chỉ (BTVN / từ mới) gộp thành một ý, luôn giữ lại
-    const all = extra.length ? [...phrases.slice(0, 2), extra.join(' và ')] : phrases;
+    phrases = phrases.concat(extra);
+    // chia đều các ý vào tối đa 3 câu
+    const n = Math.min(3, phrases.length);
+    const groups = Array.from({ length: n }, () => []);
+    phrases.forEach((ph, i) => groups[Math.floor(i * n / phrases.length)].push(ph));
     const pre = ['Con ', 'Bên cạnh đó, con ', 'Ngoài ra, con '];
-    return all.slice(0, 3).map((ph, i) => `- ${pre[i]}${ph}${i === 1 && all.length > 1 ? ', thật đáng khích lệ' : ''}.`);
+    const joinPh = g => g.length < 2 ? g[0] : g.slice(0, -1).join(', ') + (g.some(x => x.includes(',')) ? ', đồng thời ' : ' và ') + g[g.length - 1];
+    return groups.map((g, i) => `- ${pre[i]}${joinPh(g)}${i === 1 ? ', thật đáng khích lệ' : ''}.`);
   }
-
+  /** Điểm cần cải thiện: mỗi ý cô ghi một câu ngắn kèm gợi ý; lấy đủ mọi ý */
   function weakBullets(text, scores, extra) {
+    extra = extra || [];
     const items = splitItems(text);
     const out = [];
-    extra = extra || [];
-    if (items.length) {
-      items.slice(0, 2).forEach(it => {
-        const low = it.toLowerCase();
-        const hit = WEAK_LIB.find(([re]) => re.test(low));
-        const tip = hit ? hit[2] : DEFAULT_TIP;
-        let sentence;
-        if (wordCount(it) >= 10 || !hit) {
-          const body = stripCon(it);
-          sentence = /cần|nên|chưa/.test(low) ? 'Con ' + body.replace(/^./, ch => ch.toLowerCase()) : 'Con cần ' + body.replace(/^./, ch => ch.toLowerCase());
-        } else {
-          sentence = 'Con cần ' + hit[1] + contextTail(it);
-        }
-        out.push(`- ${sentence}. Gợi ý: ${tip}`);
-      });
-    } else {
-      const low = scores.filter(x => x.value !== null && x.value < 8).sort((a, b) => a.value - b.value).slice(0, 2);
-      low.forEach(x => {
+    items.forEach(it => {
+      const low = it.toLowerCase();
+      const hit = WEAK_LIB.find(([re]) => re.test(low));
+      let sentence;
+      if (wordCount(it) >= 10 || !hit) {
+        const body = clean(it);
+        sentence = /^(cần|nên|chưa|đã)\b|\bcần\b|\bnên\b|\bchưa\b/.test(body) ? 'Con ' + body : 'Con cần ' + body;
+      } else {
+        sentence = 'Con cần ' + hit[1] + contextTail(it);
+      }
+      out.push(`- ${cap(sentence)}. Gợi ý: ${hit ? hit[2] : DEFAULT_TIP}`);
+    });
+    if (!items.length) {
+      scores.filter(x => x.value !== null && x.value < 8).sort((a, b) => a.value - b.value).slice(0, 2).forEach(x => {
         const key = /nghe/.test(x.label) ? 'nghe' : /nói/.test(x.label) ? 'nói' : 'ngữ pháp';
         const hit = WEAK_LIB.find(([re]) => re.test(key));
         out.push(`- Con cần ${hit[1]} (${x.label}: ${dot(x.value)}). Gợi ý: ${hit[2]}`);
       });
-      if (!out.length && !extra.length) out.push('- Con tiếp tục duy trì phong độ và thử sức với bài nâng cao hơn. Gợi ý: mỗi tuần con làm thêm một đề nâng cao và tự chấm.');
+      if (!out.length && !extra.length) out.push('- Con hãy duy trì phong độ và thử sức với các bài nâng cao hơn. Gợi ý: mỗi tuần con làm thêm một đề nâng cao và tự chấm.');
     }
-    // tối đa 3 ý để nhận xét không quá dài; ưu tiên ý cô ghi, rồi đến chăm chỉ
-    return [...out.slice(0, 3 - Math.min(extra.length, 1)), ...extra].slice(0, 3);
+    return out.concat(extra);
   }
 
   /** Sheet điểm trên lớp đúng tháng với tháng khảo sát (cùng số tháng). Không có thì để trống. */
@@ -1301,16 +1309,16 @@
     const b = dg.btvn;
     if (b && b.total >= MIN_SESSIONS && !/btvn|bài tập về nhà|bài về nhà/i.test(told)) {
       const r = b.ok / b.total;
-      if (r >= 0.9) res.strong.push(`chăm chỉ làm bài tập về nhà đầy đủ (${b.ok}/${b.total} buổi)`);
-      else if (r >= 0.6) res.weak.push(`- Con đã có ý thức làm bài tập về nhà nhưng cần làm thường xuyên hơn (${b.ok}/${b.total} buổi). Gợi ý: bố mẹ nhắc con làm bài ngay trong ngày được giao.`);
-      else res.weak.push(`- Con cần chăm chỉ làm bài tập về nhà hơn (mới làm ${b.ok}/${b.total} buổi). Gợi ý: con đặt một khung giờ cố định mỗi tối để làm bài, bố mẹ kiểm tra giúp cô.`);
+      if (r >= 0.9) res.strong.push(`hoàn thành bài tập về nhà đầy đủ, đều đặn (${b.ok}/${b.total} buổi)`);
+      else if (r >= 0.6) res.weak.push(`- Con đã có ý thức làm bài tập về nhà nhưng cần duy trì đều đặn hơn (${b.ok}/${b.total} buổi). Gợi ý: con làm bài ngay trong ngày được giao, bố mẹ nhắc con giúp cô.`);
+      else res.weak.push(`- Con cần chăm chỉ hơn với bài tập về nhà (mới hoàn thành ${b.ok}/${b.total} buổi). Gợi ý: con dành một khung giờ cố định mỗi tối để làm bài.`);
     }
     const v = dg.tumoi;
     if (v && v.total >= MIN_SESSIONS && !/từ mới|từ vựng/i.test(told)) {
       const r = v.ok / v.total;
-      if (r >= 0.8) res.strong.push(`chăm học từ mới, đạt ${v.ok}/${v.total} bài kiểm tra từ vựng`);
-      else if (r >= 0.5) res.weak.push(`- Con đã chăm học từ mới nhưng cần ôn thường xuyên hơn (đạt ${v.ok}/${v.total} bài kiểm tra). Gợi ý: mỗi ngày con ôn lại 5–10 từ bằng flashcard và ôn toàn bộ trước buổi học.`);
-      else res.weak.push(`- Con cần chăm chỉ học từ mới hơn (mới đạt ${v.ok}/${v.total} bài kiểm tra). Gợi ý: mỗi ngày con học 5–10 từ mới bằng flashcard và nhờ bố mẹ kiểm tra lại.`);
+      if (r >= 0.8) res.strong.push(`chăm học từ mới (đạt ${v.ok}/${v.total} bài kiểm tra từ vựng)`);
+      else if (r >= 0.5) res.weak.push(`- Con đã chăm học từ mới nhưng cần ôn luyện thường xuyên hơn (đạt ${v.ok}/${v.total} bài kiểm tra). Gợi ý: mỗi ngày con ôn 5–10 từ bằng flashcard.`);
+      else res.weak.push(`- Con cần dành nhiều thời gian hơn cho việc học từ mới (mới đạt ${v.ok}/${v.total} bài kiểm tra). Gợi ý: mỗi ngày con học 5–10 từ và nhờ bố mẹ kiểm tra lại.`);
     }
     return res;
   }
@@ -1341,9 +1349,13 @@
     const rv = sheetData(ui.cls, 'nhanxet');
     return (rv.items[sid] && rv.items[sid][stId]) || {};
   }
+  /** Các ý cô ghi mà bản sửa tay được viết dựa trên */
+  function basisOf(it) { return (it.strong || '').trim() + '\u0001' + (it.weak || '').trim(); }
+  /** Bản sửa tay còn dùng được không (chưa có ý mới so với lúc sửa) */
+  function hasOverride(it) { return typeof it.text === 'string' && !!it.text && (it.basis === undefined || it.basis === basisOf(it)); }
   function reviewText(st, sid) {
     const it = reviewItem(st.id, sid);
-    return typeof it.text === 'string' && it.text ? it.text : generateComment(st, sid, it);
+    return hasOverride(it) ? it.text : generateComment(st, sid, it);
   }
   function setReviewField(stId, sid, field, value) {
     const rv = sheetData(ui.cls, 'nhanxet');
@@ -1383,7 +1395,7 @@
     h += `<div class="rv-cards"><h3>💌 Nhận xét gửi phụ huynh – ${esc(label)}</h3>`;
     students.forEach(st => {
       const it = reviewItem(st.id, sid);
-      const edited = typeof it.text === 'string' && !!it.text;
+      const edited = hasOverride(it);
       h += `<div class="rv-card" data-card="${esc(st.id)}"><div class="rv-head"><b>${esc(st.name)}</b>
         <span class="rv-flag" ${edited ? '' : 'hidden'}>✏️ đã sửa tay</span>
         <span class="spacer"></span>
@@ -1404,7 +1416,7 @@
     if (!st || !card) return;
     const sid = reviewMonth();
     const it = reviewItem(stId, sid);
-    const edited = typeof it.text === 'string' && !!it.text;
+    const edited = hasOverride(it);
     const ta = card.querySelector('textarea');
     if (document.activeElement !== ta) ta.value = reviewText(st, sid);
     autoSize(ta);
@@ -1832,6 +1844,7 @@
     }
     if (d.rvregen) {
       setReviewField(d.rvregen, reviewMonth(), 'text', '');
+      setReviewField(d.rvregen, reviewMonth(), 'basis', '');
       refreshCard(d.rvregen);
       return;
     }
@@ -1887,10 +1900,10 @@
       case 'regenAllReviews': {
         const sid = reviewMonth();
         const rv = sheetData(ui.cls, 'nhanxet');
-        const ids = Object.keys(rv.items[sid] || {}).filter(id => rv.items[sid][id].text);
+        const ids = Object.keys(rv.items[sid] || {}).filter(id => hasOverride(rv.items[sid][id]));
         if (!ids.length) { toast('Chưa có nhận xét nào sửa tay'); break; }
         if (!confirm(`Bỏ phần sửa tay của ${ids.length} nhận xét và viết lại tự động? (Có thể Hoàn tác)`)) break;
-        ids.forEach(id => setReviewField(id, sid, 'text', ''));
+        ids.forEach(id => { setReviewField(id, sid, 'text', ''); setReviewField(id, sid, 'basis', ''); });
         renderContent();
         break;
       }
@@ -2186,7 +2199,17 @@
     }
     if (t.dataset.rv) {
       const tr = t.closest('tr[data-st]');
-      setReviewField(tr.dataset.st, reviewMonth(), t.dataset.rv, t.value);
+      const sid = reviewMonth();
+      const before = reviewItem(tr.dataset.st, sid);
+      const hadEdit = typeof before.text === 'string' && !!before.text;
+      setReviewField(tr.dataset.st, sid, t.dataset.rv, t.value);
+      // có ý mới → bỏ bản sửa tay cũ, viết lại nhận xét theo ý mới
+      if (hadEdit) {
+        setReviewField(tr.dataset.st, sid, 'text', '');
+        setReviewField(tr.dataset.st, sid, 'basis', '');
+        const st = classData(ui.cls).students.find(s => s.id === tr.dataset.st);
+        toast(`↻ Nhận xét của ${st ? st.name : 'học sinh'} đã được viết lại theo ý mới`);
+      }
       refreshCard(tr.dataset.st);
       return;
     }
@@ -2194,7 +2217,9 @@
       autoSize(t);
       const st = classData(ui.cls).students.find(s => s.id === t.dataset.rvtext);
       const auto = st ? generateComment(st, reviewMonth(), reviewItem(st.id, reviewMonth())) : '';
-      setReviewField(t.dataset.rvtext, reviewMonth(), 'text', t.value === auto ? '' : t.value);
+      const manual = t.value === auto ? '' : t.value;
+      setReviewField(t.dataset.rvtext, reviewMonth(), 'text', manual);
+      setReviewField(t.dataset.rvtext, reviewMonth(), 'basis', manual ? basisOf(reviewItem(t.dataset.rvtext, reviewMonth())) : '');
       const card = t.closest('[data-card]');
       const edited = t.value !== auto && !!t.value;
       card.querySelector('.rv-flag').hidden = !edited;
