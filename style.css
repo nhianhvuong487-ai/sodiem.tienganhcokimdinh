@@ -422,3 +422,7 @@ dialog.wide { width: min(620px, 94vw); }
 .grid td.stat .pct.bad { color: var(--bad); }
 .grid td.stat .frac { margin-left: 4px; font-size: .78em; color: var(--muted); }
 @media print { .month-tabs { display: none !important; } }
+
+/* BTVN: N = hôm trước nghỉ */
+.att-btn.skipped { border: 0; background: #f59e0b; color: #fff; font-size: .85em; }
+.grid td.chk.mark-off { background: #fef3c7; }

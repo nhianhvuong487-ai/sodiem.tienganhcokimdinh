@@ -540,6 +540,9 @@
     return sh.cols.filter(c => (!c.only || c.only.includes(sid)) && !(c.skip || []).includes(sid));
   }
   function isMark(c) { return c.type === 'attend' || c.type === 'check'; }
+  /** Cột kiểm tra BTVN có thêm trạng thái "N" = hôm trước nghỉ (không tính vào tỷ lệ) */
+  function isBtvnCol(c) { return !!c && c.type === 'check' && /btvn|bài tập về nhà/i.test(c.label || ''); }
+  function isSkipped(v) { return v === 'n'; }
   function attendCol(sh) { return sh.cols.find(c => c.type === 'attend'); }
   function isPresent(v) { return v === true || v === 'v'; }
   function isAbsent(v) { return v === 'x'; }
@@ -768,7 +771,7 @@
     }
     $('#hint').innerHTML = def.type === 'sessions'
       ? `Hàng <b>“Tổng số câu”</b>: nhập tổng số câu của bài. Ô điểm: nhập <b>số câu đúng</b> → khi rời ô sẽ tự hiện <b>điểm /10</b> (bấm lại vào ô để xem/sửa số câu đúng).
-         Điểm danh, BTVN, chép nghe, chép phạt: bấm 1 lần = <b>✓</b>, 2 lần = <b>✗</b>, 3 lần = xoá. Vắng (✗ điểm danh) thì chỉ các ô của buổi đó bôi đỏ. Nút <b>↕ Sắp xếp A→Z</b> xếp theo tên (chữ cuối của họ tên). Dùng phím <b>← → ↑ ↓</b> để di chuyển giữa các ô, <b>Enter</b> để xuống ô dưới. <b>Ctrl+Z</b> hoàn tác, <b>Ctrl+Y</b> làm lại. Đổi chỗ cột: kéo thả tiêu đề cột hoặc bấm <b>‹ ›</b>. Cuối mỗi dòng: <b>tỷ lệ làm BTVN</b> (số buổi ✓ / số buổi đã chấm) và <b>tỷ lệ đạt</b> từ mới, trọng tâm (số bài từ 5 điểm / số bài có điểm).
+         Điểm danh, chép nghe, chép phạt: bấm 1 lần = <b>✓</b>, 2 lần = <b>✗</b>, 3 lần = xoá. <b>BTVN</b>: <b style="color:#059669">✓</b> đã làm → <b style="color:#e11d48">✗</b> chưa làm → <b style="color:#d97706">N</b> hôm trước nghỉ (không tính vào tỷ lệ) → xoá. Vắng (✗ điểm danh) thì chỉ các ô của buổi đó bôi đỏ. Nút <b>↕ Sắp xếp A→Z</b> xếp theo tên (chữ cuối của họ tên). Dùng phím <b>← → ↑ ↓</b> để di chuyển giữa các ô, <b>Enter</b> để xuống ô dưới. <b>Ctrl+Z</b> hoàn tác, <b>Ctrl+Y</b> làm lại. Đổi chỗ cột: kéo thả tiêu đề cột hoặc bấm <b>‹ ›</b>. Cuối mỗi dòng: <b>tỷ lệ làm BTVN</b> (số buổi ✓ / số buổi đã chấm) và <b>tỷ lệ đạt</b> từ mới, trọng tâm (số bài từ 5 điểm / số bài có điểm).
          ${def.target ? 'Cột <b>Điểm mục tiêu</b>: ô điểm <b>≥ mục tiêu</b> bôi xanh, <b>dưới 5</b> bôi đỏ, còn lại giữ nguyên.' : 'Điểm <b>từ 5 trở lên</b> bôi xanh, <b>dưới 5</b> bôi đỏ.'}
          <span class="legend"><span class="hit">${def.target ? 'đạt mục tiêu' : '≥ 5'}</span><span class="low">dưới 5</span><span class="abs">vắng</span></span>`
       : 'Lập kế hoạch học IELTS cho ' + esc(className(ui.cls)) + '. Dữ liệu tự lưu trên trình duyệt này.';
@@ -792,10 +795,12 @@
     const ref = `${sid}|${c.key}`;
     const title = `${esc(c.label)} – ${esc(sessionLabel(sh, sid))}`;
     if (isMark(c)) {
-      const cls = isPresent(v) ? 'present' : isAbsent(v) ? 'absent' : '';
-      const txt = isPresent(v) ? '✓' : isAbsent(v) ? '✗' : '';
-      const tint = c.type === 'check' ? (isPresent(v) ? 'mark-yes' : isAbsent(v) ? 'mark-no' : '') : '';
-      return `<td class="chk ${extraCls} ${tint}" ${style}><button class="att-btn ${cls}" data-attcell="${ref}" title="${title}: bấm để đổi ✓ / ✗">${txt}</button></td>`;
+      const btvn = isBtvnCol(c);
+      const cls = isPresent(v) ? 'present' : isAbsent(v) ? 'absent' : (btvn && isSkipped(v)) ? 'skipped' : '';
+      const txt = isPresent(v) ? '✓' : isAbsent(v) ? '✗' : (btvn && isSkipped(v)) ? 'N' : '';
+      const tint = c.type === 'check' ? (isPresent(v) ? 'mark-yes' : isAbsent(v) ? 'mark-no' : (btvn && isSkipped(v)) ? 'mark-off' : '') : '';
+      const help = btvn ? '✓ đã làm / ✗ chưa làm / N hôm trước nghỉ (không tính)' : '✓ / ✗';
+      return `<td class="chk ${extraCls} ${tint}" ${style}><button class="att-btn ${cls}" data-attcell="${ref}" title="${title}: bấm để đổi ${help}">${txt}</button></td>`;
     }
     if (c.type === 'text') {
       return `<td class="text ${extraCls}" ${style}><input type="text" data-cell="${ref}" value="${esc(v ?? '')}" title="${title}"></td>`;
@@ -960,7 +965,8 @@
       } else if (col.type === 'check') {
         const yes = students.filter(st => isPresent(getCell(sh, st.id, sid, key))).length;
         const no = students.filter(st => isAbsent(getCell(sh, st.id, sid, key))).length;
-        td.innerHTML = (yes || no) ? `✓${yes}${no ? ` <span style="color:var(--bad)">✗${no}</span>` : ''}` : '';
+        const off = isBtvnCol(col) ? students.filter(st => isSkipped(getCell(sh, st.id, sid, key))).length : 0;
+        td.innerHTML = (yes || no || off) ? `✓${yes}${no ? ` <span style="color:var(--bad)">✗${no}</span>` : ''}${off ? ` <span style="color:#b45309">N${off}</span>` : ''}` : '';
       } else if (col.type === 'score') {
         const vals = students.map(st => toTen(getCell(sh, st.id, sid, key), getTotal(sh, sid, key))).filter(v => v !== null);
         const a = vals.length ? vals.reduce((x, y) => x + y, 0) / vals.length : null;
@@ -1742,7 +1748,7 @@
         sh.sessions.forEach(s => colsFor(sh, s.id).forEach(c => {
           const v = getCell(sh, st.id, s.id, c.key);
           if (c.type === 'attend') r.push(isPresent(v) ? 'có mặt' : isAbsent(v) ? 'vắng' : '');
-          else if (c.type === 'check') r.push(isPresent(v) ? '✓' : isAbsent(v) ? '✗' : '');
+          else if (c.type === 'check') r.push(isPresent(v) ? '✓' : isAbsent(v) ? '✗' : (isBtvnCol(c) && isSkipped(v)) ? 'N (hôm trước nghỉ)' : '');
           else if (c.type === 'text') r.push(v ?? '');
           else r.push(fmt(toTen(v, getTotal(sh, s.id, c.key))));
         }));
@@ -1864,12 +1870,14 @@
     if (d.pickall) { t.closest('dialog').querySelectorAll('.pick input').forEach(i => { i.checked = d.pickall === '1'; }); return; }
     if (d.delsess) { deleteSession(d.delsess); return; }
     if (d.attcell) {
-      // Vòng: trống → ✓ → ✗ → trống (điểm danh, BTVN, chép nghe, chép phạt…)
+      // Vòng: trống → ✓ → ✗ → trống (điểm danh, chép nghe, chép phạt…)
+      // Riêng BTVN: trống → ✓ đã làm → ✗ chưa làm → N hôm trước nghỉ → trống
       const tr = t.closest('tr[data-st]');
       const [sid, key] = d.attcell.split('|');
       const sh = sheetData(ui.cls, ui.sheet);
       const v = getCell(sh, tr.dataset.st, sid, key);
-      const next = isPresent(v) ? 'x' : isAbsent(v) ? null : true;
+      const btvn = isBtvnCol(sh.cols.find(c => c.key === key));
+      const next = isPresent(v) ? 'x' : isAbsent(v) ? (btvn ? 'n' : null) : isSkipped(v) ? null : true;
       writeCell(tr.dataset.st, sid, key, next);
       renderContent();
       const again = document.querySelector(`tr[data-st="${CSS.escape(tr.dataset.st)}"] [data-attcell="${CSS.escape(d.attcell)}"]`);
